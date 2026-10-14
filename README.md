@@ -65,6 +65,10 @@ Tier 0 transforms existing local NVMe storage on GPU servers into ultra-fast, pe
 - **Automatic Registration**: Registers DI nodes with Hammerspace cluster via `add_node.py`
 - **DI Decommission**: Graceful node removal with volume evacuation, API deregistration, and service teardown (kubernetes mode also tears down the DaemonSet + labels)
 
+### Configuration GUI & Operations Tooling
+- **Configuration GUI** (`gui/tier0_gui.py`): local web UI with one menu per configuration area — storage layout, RAID, exclusions, NFS, performance, Hammerspace API/volumes/AZ, shares, S3, cluster settings, DI, credentials, `ansible.cfg`, static and cloud inventories. Edits are **surgical**: only the changed key's lines are rewritten, every comment in `vars/main.yml` survives, each save is previewed as a diff, verified by re-parsing, and backed up. Also runs playbooks and the Hammerspace utility scripts with live output. Standard library + PyYAML only; works on air-gapped controllers. See [gui/README.md](gui/README.md).
+- **OS Upgrade Configuration Check** (`os_upgrade_snapshot.yml`): read-only before/after snapshot of every Tier 0 node around an OS upgrade, then a section-aware diff — kernel and packages, RAID assembly and initramfs contents, mounts, NFS exports and nfsd runtime, sunrpc/nfsd tuning, read-ahead, IRQ pinning, NIC names/drivers, systemd units, firewall, `.rpmnew`/`.dpkg-*` leftovers — ranked by severity. See [OS Upgrade Configuration Check](#os-upgrade-configuration-check).
+
 ### Platform Support
 - **Multi-Distribution Support**: Works on Debian, Ubuntu, RHEL, Rocky Linux, CentOS
 - **Firewall Auto-Detection**: Automatically detects firewalld, UFW, or iptables
@@ -100,8 +104,19 @@ ansible-storage-setup/
 │                            # this directory (not the repo root). Tasks that reference
 │                            # repo-root files use `{{ repo_root }}/...` (defined in
 │                            # vars/main.yml as `{{ playbook_dir }}/..`).
+├── gui/                     # Configuration GUI (python3 gui/tier0_gui.py) — see gui/README.md
+│   ├── tier0_gui.py         # Local web server: menus, saves, jobs, upgrade reports
+│   ├── schema.py            # Every menu + field (labels, defaults, help) — one entry per variable
+│   ├── surgeon.py           # Comment-preserving YAML / INI editor with post-edit verification
+│   ├── catalog.py           # Playbooks + utility scripts the GUI may run (argv only, no shell)
+│   ├── jobs.py              # Background job runner (logs in .gui-jobs/)
+│   └── static/              # index.html, app.js, style.css (no external assets)
+├── os_upgrade_snapshot.yml  # Before/after OS-upgrade configuration snapshot + diff
+├── snapshots/               # Snapshot output: <run>/<host>/pre.txt, post.txt, diff.* (gitignored)
 ├── scripts/
-│   └── run.sh               # Wrapper that forces en_US.UTF-8 locale (use on non-English hosts)
+│   ├── run.sh               # Wrapper that forces en_US.UTF-8 locale (use on non-English hosts)
+│   ├── tier0_config_snapshot.sh  # Read-only node config collector (runs standalone too)
+│   └── tier0_snapshot_diff.py    # Section-aware diff → text / HTML / JSON + fleet summary
 ├── tests/
 │   ├── run_all.sh                       # One-shot runner: YAML + shellcheck + yamllint + syntax + integration
 │   └── integration/
@@ -110,6 +125,7 @@ ansible-storage-setup/
 │       ├── test_protected_vs_md_split.yml  # Regression test for "0 RAID arrays" on hosts with existing md arrays
 │       ├── test_repo_root.yml           # Regression test for {{ repo_root }} usage in plays/roles
 │       ├── test_run_sh_locale.sh        # Unit tests for scripts/run.sh locale-fallback chain
+│       ├── test_gui_and_snapshot.py     # GUI editor/schema/server + snapshot collector/diff/playbook
 │       └── README.md                    # How to run the integration tests
 ├── oci_deploy.py            # OCI Run Command orchestrator (zero-SSH deployment)
 ├── oci-function/            # OCI Events + Functions for auto-provisioning
@@ -919,7 +935,15 @@ ansible-inventory --host <instance-name>
 
 ### 3. Configure Variables
 
-Edit `vars/main.yml` to match your environment:
+Edit `vars/main.yml` to match your environment — by hand, or with the
+configuration GUI, which presents every variable below as a labelled form
+field with its documented default and help text, and writes only the lines
+you change:
+
+```bash
+python3 gui/tier0_gui.py          # prints http://127.0.0.1:8765/#token=...
+# headless controller: ssh -L 8765:127.0.0.1:8765 user@controller, open the URL locally
+```
 
 #### Dynamic Discovery (Recommended)
 
@@ -1010,6 +1034,10 @@ ansible-playbook site.yml --tags nfs-exports  # Update /etc/exports only (no ser
 ansible-playbook site.yml --tags firewall
 ansible-playbook site.yml --tags hammerspace
 ```
+
+The GUI's **Run Playbooks** page builds these commands from a form (tags as
+checkboxes, Check mode on by default) and runs them with live output; runs
+without Check mode that create RAID/filesystems require typing `RUN` to confirm.
 
 ### Preflight Check - Deploy Only New Instances
 
@@ -1153,6 +1181,141 @@ storage_servers:
   vars:
     ansible_ssh_common_args: '-o ProxyJump=user@bastion.example.com'
 ```
+
+## Configuration GUI
+
+`gui/tier0_gui.py` is a local web interface for this repository. It needs only
+Python 3.6+ and PyYAML (already installed with Ansible) — no pip packages, no
+internet, no CDN assets — so it runs on the same controller you run Ansible
+from, including dark sites.
+
+```bash
+python3 gui/tier0_gui.py                    # 127.0.0.1:8765, prints a URL with a one-time token
+python3 gui/tier0_gui.py --port 9000 --no-browser
+python3 gui/tier0_gui.py --read-only        # browse + validate only; no saves, no runs
+```
+
+| Menu group | Menus | File edited |
+|------------|-------|-------------|
+| Inventory | Static hosts (groups, AZ subgroups, host/group vars), OCI, AWS, GCP, Azure | `inventory.yml` / `inventory.az.yml`, `inventory.<cloud>.yml` |
+| Tier 0 Configuration | Storage Layout, RAID Sizing & CPU Tuning, Device Exclusions, NFS Server & Exports, Performance Tuning, Mount Protection, Firewall, Pre-checks, Safety Switches | `vars/main.yml` |
+| Hammerspace | API, Volumes & AZ, Volume Groups/Shares/Objectives, Throttling & Timeouts, Cluster Settings, S3 | `vars/main.yml` |
+| Data Instantiator | Deployment, Packages, Node/AZ/Host, Kubernetes, Decommission | `vars/main.yml` |
+| Controller | Credentials (Ansible Vault aware), Ansible Settings, Raw File Editor | `vars/vault.yml`, `ansible.cfg`, any config file |
+| Operate | Run Playbooks, Hammerspace Utilities, OS Upgrade Check, Job History | runs `scripts/run.sh` / the `*.py` tools |
+
+How saves work:
+
+- Only the lines of the keys you changed are rewritten; all other lines and
+  comments stay byte-identical. A commented-out example such as
+  `# expected_nvme_count: 9` is activated directly beneath the example.
+- Every save shows a diff first, is re-parsed and verified (the edited keys
+  must read back with the intended values, and no other key may change), and
+  backs up the previous file to `.gui-backups/`.
+- If the file changed on disk since the page loaded, the save is refused.
+- An encrypted `vars/vault.yml` is decrypted only in memory with the password
+  you enter, and re-encrypted on save; secret values are masked in the diff.
+
+The Overview page runs cross-field checks (sample Anvil IP still set,
+thresholds inverted, destructive switches on, DI Kubernetes mode without a
+registry namespace, Git-LFS pointer RPMs in `payload/`, ...). The interface
+uses the Hammerspace UI's look; each menu's status dot shows unsaved edits
+(yellow) and errors (red).
+
+Full guide: [gui/README.md](gui/README.md).
+
+## OS Upgrade Configuration Check
+
+Operating-system upgrades and kernel patches routinely undo Tier 0
+configuration without any error: a new initramfs without `mdadm.conf`
+(arrays come back as `md127`), `/etc/nfs.conf` replaced by the package
+(nfsd drops from 128 threads to 8), sunrpc slot tables back to the kernel
+default of 2, `irqbalance` re-enabled over the IRQ pinning, a renamed NIC,
+read-ahead back to 128 KB. `os_upgrade_snapshot.yml` captures each node's
+configuration before and after the upgrade and tells you exactly what changed.
+
+### Workflow
+
+```bash
+# 1. Before the upgrade (read-only)
+./scripts/run.sh playbook os_upgrade_snapshot.yml -i inventory.yml \
+  -e snapshot_phase=pre -e snapshot_run=2026-10-rocky-9.5
+
+# 2. Upgrade the OS and reboot the node(s) with your normal process.
+
+# 3. After the upgrade: capture again and diff
+./scripts/run.sh playbook os_upgrade_snapshot.yml -i inventory.yml \
+  -e snapshot_phase=post -e snapshot_run=2026-10-rocky-9.5
+
+# Rebuild the reports from existing snapshots without contacting hosts
+./scripts/run.sh playbook os_upgrade_snapshot.yml -e snapshot_phase=diff -e snapshot_run=2026-10-rocky-9.5
+```
+
+The same workflow is a guided four-step page in the GUI (**Operate → OS
+Upgrade Check**), which also renders every report and can compare any two
+archived captures of a host.
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `snapshot_phase` | *(required)* | `pre`, `post`, or `diff` |
+| `snapshot_run` | `os-upgrade` | Run name — use one per maintenance window |
+| `snapshot_hosts` | `storage_servers` | Host pattern, e.g. `di_nodes` or `storage_servers:di_nodes` |
+| `snapshot_root` | `<repo>/snapshots` | Output directory on the controller |
+| `snapshot_overwrite` | `false` | Allow replacing an existing `pre.txt` |
+| `snapshot_mount_root` | `mount_base_path` | Root of the Tier 0 data mounts |
+
+Safety: the collector only queries state. A second `pre` for the same run is
+refused (it would replace the baseline with post-upgrade state); `post` is
+refused for a host without a baseline; `--check` works.
+
+### Output
+
+```
+snapshots/2026-10-rocky-9.5/
+├── SUMMARY.txt / SUMMARY.json      one line per host: status, critical/warning/info counts, kernel change
+└── node101/
+    ├── pre.txt   post.txt          latest captures
+    ├── pre-20261014T231729Z.txt    every capture is archived with a UTC timestamp
+    ├── diff.txt                    text report
+    ├── diff.html                   self-contained HTML report (open in any browser)
+    └── diff.json                   machine-readable result
+```
+
+### What is captured and how it is compared
+
+The snapshot has ~50 sections. Volatile values (counters, timestamps, PIDs,
+IRQ numbers, autofs fds, resync progress, free space) are normalized, so
+two captures of an unchanged node are identical. Each section has a severity:
+
+| Severity | Sections | Why |
+|----------|----------|-----|
+| **critical** | `raid.*` (mdstat, `mdadm --detail`, mdadm.conf, initramfs contents), `fs.*` (fstab, mounts, XFS geometry, PrimaryData presence), `nfs.exports_*`, `nfs.runtime` (threads, versions, max_block_size, sunrpc slots), `storage.nvme_controllers` (keyed by serial, so renumbering shows), `storage.block_devices`, `net.links`, `services.failed` | Tier 0 data path — a change here can make Hammerspace mark volumes suspected |
+| **warning** | `perf.*` (modprobe/sysctl/udev files, script hashes, IRQ affinity), `kernel.sysctl` / `module_params` / `cmdline`, `storage.queue_settings`, `services.key_units`, `packages.config_leftovers`, NIC drivers/firmware, RDMA, firewall, SELinux, DI | Tuning or behaviour that silently reverts |
+| **info** | OS release, kernel version, installed kernels, packages, repositories, enabled unit files, CPU | Expected to change during an upgrade |
+
+Instead of raw text, packages are reported as upgraded / downgraded / added /
+removed (multi-version packages such as `kernel` separately), and key=value
+sections (sysctl, nfsd runtime, headline facts) as before → after tables. The
+report also warns when both captures are from the same boot (the node has not
+been rebooted onto the new kernel yet).
+
+### Without Ansible
+
+The collector and the diff tool also work by hand on a single node:
+
+```bash
+sudo bash scripts/tier0_config_snapshot.sh > pre.txt
+# ...upgrade, reboot...
+sudo bash scripts/tier0_config_snapshot.sh > post.txt
+python3 scripts/tier0_snapshot_diff.py pre.txt post.txt --html diff.html   # exit 0 = identical, 1 = changed
+```
+
+Environment overrides for the collector: `TIER0_MOUNT_ROOT` (default
+`/hammerspace`), `TIER0_SNAPSHOT_TIMEOUT` (per-command timeout, default 30 s).
+
+For where this fits in planned maintenance (availability-drop, health checks)
+and how to fix the usual findings, see
+[RACK_OPERATIONS_RUNBOOK.md](RACK_OPERATIONS_RUNBOOK.md) §3 Step 1b and §4 Step 1b.
 
 ## Dynamic NVMe Discovery
 
@@ -2698,6 +2861,7 @@ required, no sudo prompt — safe to run on a dev laptop or in CI.
 ./scripts/run.sh playbook tests/integration/test_raid_idempotency.yml -i localhost, -c local
 ./scripts/run.sh playbook tests/integration/test_protected_vs_md_split.yml -i localhost, -c local
 bash tests/integration/test_run_sh_locale.sh
+python3 tests/integration/test_gui_and_snapshot.py   # GUI + OS-upgrade snapshot (30 tests)
 ```
 
 Linux-only — the playbook self-skips on macOS. See
@@ -2710,6 +2874,9 @@ Run the suite before merging any change to:
 - `roles/nvme_discovery/tasks/build_raid_arrays.yml` (safety gate)
 - `roles/precheck/tasks/validate_drives.yml`
 - `roles/raid_setup/tasks/main.yml` (idempotency detection + device remap)
+- `vars/main.yml` (any new top-level variable needs a field in `gui/schema.py`;
+  `test_gui_and_snapshot.py` fails until it has one)
+- `gui/` or `scripts/tier0_config_snapshot.sh` / `tier0_snapshot_diff.py`
 
 ## References
 

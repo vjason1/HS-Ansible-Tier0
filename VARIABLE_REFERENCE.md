@@ -507,6 +507,44 @@ placement objectives.
 | `reset_extra_md_devices` | `[]` | Additional md devices to destroy. |
 | `reset_extra_member_drives` | `[]` | Additional member drives to wipe. |
 
+## OS Upgrade Snapshot (os_upgrade_snapshot.yml)
+
+Read-only before/after configuration capture around an OS upgrade. Pass with
+`-e`. See README → OS Upgrade Configuration Check.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `snapshot_phase` | *(required)* | `pre` (baseline, before the upgrade), `post` (after; also writes the diff reports), or `diff` (rebuild reports from existing snapshots without contacting hosts). |
+| `snapshot_run` | `"os-upgrade"` | Run name = subdirectory under `snapshot_root`. Use one per maintenance window (e.g. `2026-10-rocky-9.5`). No `/`. |
+| `snapshot_hosts` | `"storage_servers"` | Host pattern for the play, e.g. `di_nodes` or `storage_servers:di_nodes`. Combine with `--limit` for a subset. |
+| `snapshot_root` | `"{{ repo_root }}/snapshots"` | Output directory on the controller (gitignored). |
+| `snapshot_overwrite` | `false` | Allow `pre` to replace an existing `pre.txt`. Without it a second `pre` fails, so post-upgrade state can never overwrite the baseline. |
+| `snapshot_mount_root` | `mount_base_path` (`/hammerspace`) | Root of the Tier 0 data mounts examined in `fs.tier0_mounts`. |
+
+Environment variables read by `scripts/tier0_config_snapshot.sh` (the playbook
+sets the first one from `snapshot_mount_root`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TIER0_MOUNT_ROOT` | `/hammerspace` | Root of the Tier 0 data mounts. |
+| `TIER0_SNAPSHOT_TIMEOUT` | `30` | Per-command timeout in seconds (needs `timeout` from coreutils). |
+
+`scripts/tier0_snapshot_diff.py` exit codes: `0` identical, `1` differences
+found, `2` usage/parse error.
+
+## Configuration GUI (gui/tier0_gui.py)
+
+Not Ansible variables — environment settings for the GUI server. See
+[gui/README.md](gui/README.md).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TIER0_GUI_PORT` | `8765` | Listen port (same as `--port`). |
+| `TIER0_GUI_TOKEN` | random per start | Fixed access token (same as `--token`). |
+
+Every top-level variable in `vars/main.yml` must have a field in
+`gui/schema.py`; `tests/integration/test_gui_and_snapshot.py` enforces this.
+
 ## Vault Variables
 
 Stored in `vars/vault.yml` (encrypt with `ansible-vault encrypt vars/vault.yml`).

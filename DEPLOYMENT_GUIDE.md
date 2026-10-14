@@ -257,6 +257,8 @@ instance20260127011851 | SUCCESS => {
 
 ### 5.1 Edit vars/main.yml
 
+> **Prefer a form?** `python3 gui/tier0_gui.py` opens a local configuration GUI that presents these variables as labelled fields with their defaults and help text, previews the exact diff, and changes only the lines you edit (comments are preserved, a backup is kept). On a remote controller: `ssh -L 8765:127.0.0.1:8765 <user>@<controller>` and open the printed URL locally. See [gui/README.md](gui/README.md).
+
 Update the following sections in `vars/main.yml`:
 
 #### Hammerspace API Configuration (Required)
@@ -1541,6 +1543,9 @@ python3 cleanup_instance_nodes.py \
 | List volume group members | `python3 add_volumes_to_group.py --host <IP> --user admin --password-file ~/.hs_password --group "group-name" --list` |
 | Rename OCI instances (pattern) | `python3 rename_oci_instances_az.py --host <IP> --user admin --password-file ~/.hs_password --compartment-id <OCID> --name-pattern "^instance2026"` |
 | Rename OCI instances (file) | `python3 rename_oci_instances_az.py --host <IP> --user admin --password-file ~/.hs_password --compartment-id <OCID> --instances-file tier0_instances_limit` |
+| Configuration GUI | `python3 gui/tier0_gui.py` (then open the printed URL; remote: `ssh -L 8765:127.0.0.1:8765 <controller>`) |
+| OS upgrade: baseline | `ansible-playbook os_upgrade_snapshot.yml -i inventory.oci.yml -e snapshot_phase=pre -e snapshot_run=<window>` |
+| OS upgrade: compare | `ansible-playbook os_upgrade_snapshot.yml -i inventory.oci.yml -e snapshot_phase=post -e snapshot_run=<window>` |
 
 ---
 
