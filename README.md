@@ -25,6 +25,8 @@ Both paths drive the same playbooks and edit the same files (`vars/main.yml`,
 The GUI needs only Python 3.6+ and PyYAML (installed with Ansible) and no internet
 access, so it also runs on air-gapped controllers.
 
+![The Tier 0 Configuration GUI: Overview page with the configuration check and recent jobs](docs/images/gui/overview.png)
+
 ## Pick your platform
 
 | Where your Tier 0 nodes run | GUI guide | Manual (CLI) guide | End-to-end deployment guide (CLI) |
@@ -52,6 +54,16 @@ python3 gui/tier0_gui.py                        # open the printed http://127.0.
 
 Then: **Inventory** (your hosts) → **Hammerspace API** + **Credentials** → **Storage
 Layout** → **Overview** (configuration check) → **Run Playbooks** (dry run, then deploy).
+
+### The GUI at a glance
+
+<table>
+<tr><td align="center"><a href="docs/images/gui/static-hosts.png"><img src="docs/images/gui/static-hosts.png" alt="Static hosts" width="280"></a><br>Static hosts</td><td align="center"><a href="docs/images/gui/config-form.png"><img src="docs/images/gui/config-form.png" alt="Settings with defaults and help" width="280"></a><br>Settings with defaults and help</td><td align="center"><a href="docs/images/gui/run-playbooks.png"><img src="docs/images/gui/run-playbooks.png" alt="Run playbooks" width="280"></a><br>Run playbooks</td></tr>
+<tr><td align="center"><a href="docs/images/gui/job-output.png"><img src="docs/images/gui/job-output.png" alt="Live job output" width="280"></a><br>Live job output</td><td align="center"><a href="docs/images/gui/upgrade-check.png"><img src="docs/images/gui/upgrade-check.png" alt="OS upgrade check" width="280"></a><br>OS upgrade check</td><td align="center"><a href="docs/images/gui/upgrade-report.png"><img src="docs/images/gui/upgrade-report.png" alt="Upgrade report per host" width="280"></a><br>Upgrade report per host</td></tr>
+<tr><td align="center"><a href="docs/images/gui/logs-reports.png"><img src="docs/images/gui/logs-reports.png" alt="Logs &amp; reports" width="280"></a><br>Logs &amp; reports</td><td align="center"><a href="docs/images/gui/log-viewer.png"><img src="docs/images/gui/log-viewer.png" alt="Log viewer" width="280"></a><br>Log viewer</td><td align="center"><a href="docs/images/gui/upload-dialog.png"><img src="docs/images/gui/upload-dialog.png" alt="Upload to Hammerspace" width="280"></a><br>Upload to Hammerspace</td></tr>
+</table>
+
+Every menu is described, with larger screenshots, in the [GUI reference](gui/README.md).
 
 ## What it does
 

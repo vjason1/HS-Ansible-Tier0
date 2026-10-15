@@ -1007,7 +1007,7 @@ async function pageRun(view, preset) {
   const pre = RUN_PRESETS[preset] || {};
   const invDefault = await defaultInventory();
   const page = h('div', { class: 'page wide' });
-  page.append(pageHead('Run playbooks', 'Build an ansible-playbook command from the options below and run it on this controller through scripts/run.sh (UTF-8 locale + log file in ~/logs). Output streams live; every run is kept in Job history.'));
+  page.append(pageHead('Run playbooks', 'Build an ansible-playbook command from the options below and run it on this controller through scripts/run.sh (UTF-8 locale + a log file in logs/). Output streams live; every run is kept in Job History and Logs & Reports.'));
   const pbSel = h('select', { id: 'pb' }, S.meta.playbooks.map((p) => h('option', { value: p.id, text: p.title })));
   pbSel.value = pre.playbook || 'site.yml';
   const desc = h('div');
@@ -1440,6 +1440,14 @@ function scrollToHeading(id) {
   if (el) el.scrollIntoView({ block: 'start' });
 }
 
+// A screenshot referenced by a doc: only images under docs/images/ are served.
+function docImage(docName, src, alt) {
+  if (/^[a-z]+:/i.test(src) || src.startsWith('/')) return h('span', { class: 'muted', text: alt });
+  const url = '/api/doc/image?path=' + encodeURIComponent(resolveDocPath(docName, src)) + '&token=' + encodeURIComponent(S.token);
+  return h('a', { href: url, target: '_blank', rel: 'noopener noreferrer', class: 'doc-img', title: 'Open full size' },
+    h('img', { src: url, alt, loading: 'lazy' }));
+}
+
 function renderMarkdown(md, docName) {
   docName = docName || 'README.md';
   const root = h('div', { class: 'doc' });
@@ -1447,12 +1455,16 @@ function renderMarkdown(md, docName) {
   let i = 0;
   const inline = (text) => {
     const frag = document.createDocumentFragment();
-    const re = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\))/g;
+    const re = /(`[^`]+`|\*\*[^*]+\*\*|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\))/g;
     let last = 0; let m;
     while ((m = re.exec(text))) {
       if (m.index > last) frag.append(text.slice(last, m.index));
       const tok = m[0];
       if (tok[0] === '`') frag.append(h('code', { text: tok.slice(1, -1) }));
+      else if (tok[0] === '!') {
+        const im = tok.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+        frag.append(docImage(docName, im[2], im[1]));
+      }
       else if (tok.startsWith('**')) frag.append(h('strong', { text: tok.slice(2, -2) }));
       else {
         const mm = tok.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
@@ -1477,6 +1489,20 @@ function renderMarkdown(md, docName) {
       const buf = []; i++;
       while (i < lines.length && !/^```/.test(lines[i])) buf.push(lines[i++]);
       i++; root.append(h('pre', {}, h('code', { text: buf.join('\n') }))); continue;
+    }
+    if (/^<table/i.test(line.trim())) {
+      // HTML gallery table (README screenshots): show its images as a grid, nothing else of the HTML.
+      const buf = [];
+      while (i < lines.length) { buf.push(lines[i]); if (/<\/table>/i.test(lines[i++])) break; }
+      const grid = h('div', { class: 'doc-gallery' });
+      const re = /<img\s[^>]*?src="([^"]+)"[^>]*?alt="([^"]*)"[^>]*>/gi;
+      let m;
+      const html = buf.join('\n');
+      while ((m = re.exec(html))) {
+        const alt = m[2].replace(/&amp;/g, '&');
+        grid.append(h('figure', {}, docImage(docName, m[1], alt), h('figcaption', { text: alt })));
+      }
+      root.append(grid); continue;
     }
     const hm = line.match(/^(#{1,6})\s+(.*)$/);
     if (hm) { root.append(h('h' + Math.min(hm[1].length, 4), { id: 'h-' + headingSlug(hm[2]) }, inline(hm[2]))); i++; continue; }

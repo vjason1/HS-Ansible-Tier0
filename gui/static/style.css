@@ -330,6 +330,10 @@ ol.steps li p { margin: 0 0 10px; color: var(--muted); font-size: 14px; max-widt
 .doc pre { background: var(--paper); border: 1px solid var(--line); padding: 10px 14px; overflow-x: auto; border-radius: 4px; }
 .doc table { border-collapse: collapse; margin: 10px 0; font-size: 14px; display: block; overflow-x: auto; }
 .doc th, .doc td { border: 1px solid var(--line); padding: 5px 9px; text-align: left; vertical-align: top; }
+.doc .doc-img img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 4px; margin: 10px 0; }
+.doc-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; margin: 12px 0; }
+.doc-gallery figure { margin: 0; } .doc-gallery .doc-img img { margin: 0 0 4px; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top; }
+.doc-gallery figcaption { font-size: 13px; color: var(--muted); text-align: center; }
 .doc blockquote { margin: 10px 0; padding: 4px 14px; border-left: 3px solid var(--line-strong); color: var(--muted); }
 .doc-layout { display: grid; grid-template-columns: 220px 1fr; gap: 20px; }
 .doc-list { list-style: none; padding: 0; margin: 0; font-size: 14px; }

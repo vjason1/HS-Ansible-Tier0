@@ -1483,7 +1483,25 @@ def _docs_list(handler, q):
     handler._send(200, {"docs": doc_list(repo), "entries": doc_entries(repo)})
 
 
+DOC_IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+                   ".webp": "image/webp"}   # no SVG: it can carry script
+
+
+def _doc_image(handler, q):
+    """Screenshots referenced by the docs, served only from docs/images/."""
+    repo = handler.app["repo"]
+    rel = (q.get("path") or [""])[0]
+    base = os.path.realpath(os.path.join(repo.root, "docs", "images"))
+    full = os.path.realpath(os.path.join(repo.root, rel)) if rel and not os.path.isabs(rel) else ""
+    ctype = DOC_IMAGE_TYPES.get(os.path.splitext(full)[1].lower())
+    if not (full.startswith(base + os.sep) and ctype and os.path.isfile(full)):
+        raise ApiError(404, "unknown image")
+    with open(full, "rb") as fh:
+        handler._send(200, fh.read(), ctype)
+
+
 ROUTES[("GET", "/api/docs")] = _docs_list
+ROUTES[("GET", "/api/doc/image")] = _doc_image
 ROUTES[("GET", "/api/ssh/keys")] = _ssh_keys
 ROUTES[("POST", "/api/state")] = _state_post
 ROUTES[("GET", "/api/doc")] = _doc_get
