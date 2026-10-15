@@ -45,6 +45,8 @@ Open the printed URL (headless controller: `ssh -L 8765:127.0.0.1:8765 <user>@<c
 
 This menu edits `inventory.aws.yml`.
 
+![AWS (dynamic) inventory settings](../images/gui/inv-aws.png)
+
 | Field | What to set |
 |-------|-------------|
 | **Regions** | e.g. `us-west-2` |

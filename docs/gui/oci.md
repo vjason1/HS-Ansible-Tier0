@@ -46,6 +46,8 @@ Open the printed URL (headless controller: `ssh -L 8765:127.0.0.1:8765 <user>@<c
 
 This menu edits `inventory.oci.yml` (the file name must end in `.oci.yml` for the plugin).
 
+![OCI (dynamic): regions, host filters and the storage_servers group expression](../images/gui/inv-oci.png)
+
 | Field | What to set |
 |-------|-------------|
 | **Regions** | Your region(s), one per line, e.g. `us-sanjose-1` |
@@ -79,6 +81,8 @@ GPU images normally have passwordless sudo; if not, see *Sudo* in the
 ## 5. Choose how AZs are assigned
 
 **Hammerspace → Volumes & Availability Zones**:
+
+![Volumes & Availability Zones: AZ prefix, AZ mapping for nodes and AZ labels](../images/gui/volumes-az.png)
 
 | Strategy | Settings | Result |
 |----------|----------|--------|

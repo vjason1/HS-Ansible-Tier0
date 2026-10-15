@@ -51,6 +51,8 @@ Open the printed URL (headless controller: `ssh -L 8765:127.0.0.1:8765 <user>@<c
 This menu edits `inventory.azure.yml`. The plugin only recognises files ending in
 `azure.yml` / `azure_rm.yml` — don't rename it.
 
+![Azure (dynamic): resource groups, auth source and the storage_servers condition](../images/gui/inv-azure.png)
+
 | Field | What to set |
 |-------|-------------|
 | **Resource groups** | The group(s) holding the Tier 0 VMs. Removing it scans the whole subscription (slow). |
@@ -77,6 +79,8 @@ for password-only images. Azure reuses private IPs for reimaged VMs; this repo's
 
 ## 4. Match the disk layout — Storage Layout
 
+![Storage Layout: discovery, device type, software RAID and mount path](../images/gui/config-form.png)
+
 | VM family | Local storage | **Storage device type** |
 |-----------|---------------|-------------------------|
 | Lsv3 / Lasv3 / Lsv2 (storage optimized) | Local NVMe | `nvme` |
@@ -99,6 +103,8 @@ Azure specifics handled for you, worth knowing:
   RAID* and list `/dev/nvme0n1` under *Hardware RAID devices*.
 
 ## 5. AZ mapping — Volumes & Availability Zones
+
+![Volumes & Availability Zones: AZ prefix, AZ mapping for nodes and AZ labels](../images/gui/volumes-az.png)
 
 | VM placement | Settings | Result |
 |--------------|----------|--------|

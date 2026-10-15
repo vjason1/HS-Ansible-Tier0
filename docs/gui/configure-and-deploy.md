@@ -15,6 +15,8 @@ check finds an error in it. Full reference: [gui/README.md](../../gui/README.md)
 
 **Hammerspace → Hammerspace API**
 
+![Hammerspace API: Anvil address, user and TLS settings](../images/gui/hs-api.png)
+
 | Field | Set to |
 |-------|--------|
 | Anvil management IP / host | Your Anvil management IP (the sample `10.0.10.15` is flagged on the Overview until you change it). NFS export and jumbo-frame test lists derive from it. |
@@ -22,11 +24,18 @@ check finds an error in it. Full reference: [gui/README.md](../../gui/README.md)
 | Validate TLS certificates | Off for the usual self-signed Anvil certificate |
 | HTTP method | `auto` (switches to curl on Python 3.13+) |
 
+Edited menus turn yellow. **Review changes** shows exactly which lines of the file
+will change before **Save to file** writes them (a backup is kept):
+
+![Review changes before saving: only the edited line changes in vars/main.yml](../images/gui/save-review.png)
+
 **Controller → Credentials** — the password itself:
 
 1. If `vars/vault.yml` is plaintext, click **Encrypt vars/vault.yml…** and choose a vault
    password. Keep it safe; runs need it.
 2. **Set a value** on *Hammerspace API password*, then **Save to file**.
+
+![Credentials: vault secrets with the Encrypt button](../images/gui/credentials.png)
 
 The API field `hammerspace_api_password` keeps pointing at
 `{{ vault_hammerspace_api_password }}` — leave it that way. (On Azure you can pull
@@ -38,6 +47,8 @@ hosts* here (or type it per run — see step 6).
 ## 2. Describe the storage
 
 **Tier 0 Configuration → Storage Layout** — pick ONE mode:
+
+![Storage Layout: discovery, device type, software RAID and mount path](../images/gui/config-form.png)
 
 | Mode | When | Fields |
 |------|------|--------|
@@ -56,6 +67,8 @@ Then as needed:
 - **Safety Switches** — leave everything off. These are the destructive overrides.
 
 ## 3. NFS exports and Hammerspace volumes
+
+![NFS Server & Exports settings](../images/gui/nfs.png)
 
 - **Tier 0 Configuration → NFS Server & Exports** — add secondary Anvil/DSX IPs
   to *Hammerspace node IPs*, mover/DI IPs to *Mover / DI IPs*, and narrow
@@ -83,9 +96,13 @@ Open **Getting Started → Overview**. Fix everything listed as *Error* (each ro
 has a **Fix** link to the right menu); read the *Warnings*. Typical first-run
 items: Anvil IP still the sample, vault password not set, destructive switch on.
 
+![Overview: the configuration check lists what still needs attention](../images/gui/overview.png)
+
 ## 6. Dry run
 
 **Operate → Run Playbooks**, or the Overview's **Dry-run discovery and pre-checks**:
+
+![Run Playbooks: discovery and precheck tags in check mode, with the exact command](../images/gui/run-dry-run.png)
 
 1. Playbook **Deploy Tier 0 (site.yml)**.
 2. **Inventory (-i)**: the first time, `inventory.yml` is ticked. **For a cloud
@@ -97,6 +114,8 @@ items: Anvil IP still the sample, vault password not set, destructive switch on.
    *Use the saved sudo password*.
 5. **Run playbook** — output streams live; every run stays in **Job History**, and its
    Ansible log in **Logs & Reports**.
+
+![A finished job with its streamed Ansible output](../images/gui/job-output.png)
 
 The discovery output shows, per host, which drives were found, which were
 excluded (boot/system disks are always protected) and the RAID arrays that

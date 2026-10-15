@@ -41,6 +41,8 @@ python3 gui/tier0_gui.py
 
 This menu edits `inventory.gcp.yml`.
 
+![GCP (dynamic) inventory settings](../images/gui/inv-gcp.png)
+
 | Field | What to set |
 |-------|-------------|
 | **Projects (REQUIRED)** | Your project ID — the inventory returns nothing without it |

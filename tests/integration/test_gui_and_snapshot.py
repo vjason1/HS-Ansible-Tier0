@@ -657,12 +657,18 @@ class TestDocLinks(unittest.TestCase):
         return out
 
     def test_screenshots(self):
-        """README screenshots exist, are real PNGs under docs/images/, are all used, and stay small."""
+        """Every GUI guide has screenshots; they exist, are PNGs under docs/images/, are all used, and stay small."""
         used = set()
-        for doc in ("README.md", "gui/README.md"):
+        must_have = {"README.md", "gui/README.md", "docs/os-upgrade-check.md"} | {
+            "docs/gui/" + f for f in os.listdir(os.path.join(REPO, "docs", "gui")) if f.endswith(".md")}
+        docs = [os.path.relpath(os.path.join(d, f), REPO).replace(os.sep, "/")
+                for d, dirs, files in os.walk(REPO) for f in files
+                if f.endswith(".md") and not any(x in d for x in (".git", "payload", "snapshots"))]
+        for doc in docs:
             text = read(doc)
             refs = re.findall(r'!\[[^\]]*\]\(([^)\s]+)\)', text) + re.findall(r'<img\s[^>]*src="([^"]+)"', text)
-            self.assertTrue(refs, doc + " has no screenshots")
+            if doc in must_have:
+                self.assertTrue(refs, doc + " has no screenshots")
             for ref in refs:
                 full = os.path.normpath(os.path.join(REPO, os.path.dirname(doc), ref))
                 rel = os.path.relpath(full, REPO).replace(os.sep, "/")
