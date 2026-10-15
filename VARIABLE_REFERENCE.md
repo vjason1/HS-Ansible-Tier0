@@ -543,8 +543,10 @@ Not Ansible variables — environment settings for the GUI server. See
 | `TIER0_GUI_TOKEN` | random per start | Fixed access token (same as `--token`). |
 | `TIER0_SSH_PASSWORD` | *(none)* | Password read by `scripts/push_ssh_key.py` (the GUI sets it per run). Never pass the password as an argument. |
 
-The GUI's runs preselect `inventory.yml`; `ansible.cfg`'s `inventory` is used
-only when `inventory.yml` does not exist (and by command-line runs without `-i`).
+The GUI's runs preselect the inventory you last chose there (stored in
+`.gui-state.json`); the first time, `inventory.yml`, or `ansible.cfg`'s
+`inventory` when `inventory.yml` does not exist. Command-line runs without `-i`
+always use `ansible.cfg`'s `inventory`.
 
 Every top-level variable in `vars/main.yml` must have a field in
 `gui/schema.py`; `tests/integration/test_gui_and_snapshot.py` enforces this.

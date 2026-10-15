@@ -44,3 +44,6 @@ SKILLS.md
 
 # OS upgrade configuration snapshots (os_upgrade_snapshot.yml) - host config dumps
 snapshots/
+
+# Configuration GUI remembered choices (last inventory selection)
+.gui-state.json

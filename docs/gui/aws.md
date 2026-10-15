@@ -86,7 +86,8 @@ API* if you also want AZ labels on the nodes.
 
 Continue with the [shared GUI steps](configure-and-deploy.md). AWS specifics:
 
-- **On the Run page, untick `inventory.yml` and tick `inventory.aws.yml`.**
+- **The first time, on the Run page, untick `inventory.yml` and tick `inventory.aws.yml`.**
+  The app remembers that choice for every later run and for OS Upgrade Check.
 - Security groups must allow SSH from the controller, NFS between the nodes and the
   Hammerspace cluster (111, 2049, 20048 TCP/UDP; 20049 TCP for RDMA), and access to
   the Anvil management IP on port 8443 for the API integration.

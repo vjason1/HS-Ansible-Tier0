@@ -252,8 +252,9 @@ Notes:
 UTF-8 locale fix and `~/logs/` logging apply) from:
 
 - playbook (every playbook in the repo, with a description),
-- inventory files (`-i`; `inventory.yml` is pre-selected — `ansible.cfg`'s
-  default is used only if `inventory.yml` does not exist), `--limit`,
+- inventory files (`-i`). Your last selection is remembered (see below); the
+  first time, `inventory.yml` is ticked, or `ansible.cfg`'s default if there is
+  no `inventory.yml`. `--limit`,
 - tags and skip-tags as checkboxes (only tags that exist in the playbooks),
 - Check mode (**on by default**), `--diff`, verbosity,
 - vault password and sudo password (see
@@ -261,7 +262,15 @@ UTF-8 locale fix and `~/logs/` logging apply) from:
 - playbook-specific extras (`deploy_di`, `hammerspace_serial`,
   `reset_confirm`, `decommission_confirm`, ...) and free-form `key=value` extra vars.
 
-The exact command is shown before you run it. A run that can destroy data —
+The exact command is shown before you run it.
+
+**Remembered inventory.** Whatever inventory files you tick on Run Playbooks or
+OS Upgrade Check are saved immediately and preselected on both pages from then
+on. The choice is stored on the controller in `.gui-state.json` (gitignored),
+not in the browser, so it also applies from another browser or machine. A
+remembered file that no longer exists is dropped. The Overview shows the
+inventory runs will use and notes when it differs from `ansible.cfg`, which
+command-line runs without `-i` still use. A run that can destroy data —
 `site.yml` without Check mode, `reset-tier0-host.yml`, the decommission
 playbooks — must be confirmed by typing `RUN`. Output streams live and every
 run is kept in **Job History** (`.gui-jobs/`), where a running job can be stopped.

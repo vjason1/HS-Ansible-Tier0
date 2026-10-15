@@ -79,7 +79,8 @@ nodes** and *Apply AZ labels via API*.
 
 Continue with the [shared GUI steps](configure-and-deploy.md). GCP specifics:
 
-- **On the Run page, untick `inventory.yml` and tick `inventory.gcp.yml`.**
+- **The first time, on the Run page, untick `inventory.yml` and tick `inventory.gcp.yml`.**
+  The app remembers that choice for every later run and for OS Upgrade Check.
 - Firewall rules must allow SSH from the controller, NFS between the nodes and the
   Hammerspace cluster (111, 2049, 20048 TCP/UDP; 20049 TCP for RDMA), and access to
   the Anvil management IP on port 8443 for the API integration.
