@@ -31,6 +31,8 @@ plain directory would hand clients space on the OS disk instead of the array.
 
 ## 01 — Configure
 
+> **Prefer a form?** `python3 gui/tier0_gui.py` opens a local configuration GUI that presents these variables as labelled fields with their defaults and help text, previews the exact diff, and changes only the lines you edit (comments are preserved, a backup is kept). `existing_mount_paths` and `existing_mount_subdir` are under **Tier 0 Configuration → Storage Layout**. See [gui/README.md](gui/README.md).
+
 Everything lives in `vars/main.yml`.
 
 ### Point Tier 0 at the mounted array

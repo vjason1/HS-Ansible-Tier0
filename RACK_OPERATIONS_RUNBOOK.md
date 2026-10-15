@@ -108,6 +108,11 @@ Options:
 |----------|---------|
 | `site.yml` | Full provisioning (OCI / general) |
 | `site-onprem-nvme.yml` | On-prem NVMe provisioning (no firewall) |
+| `os_upgrade_snapshot.yml` | Read-only before/after configuration snapshot + diff for OS upgrades and patching (see [README → OS Upgrade Configuration Check](README.md#os-upgrade-configuration-check)) |
+
+All of the above, plus the two scripts, can also be driven from the
+configuration GUI (`python3 gui/tier0_gui.py` → **Operate** menus). See
+[gui/README.md](gui/README.md).
 
 ---
 
@@ -135,6 +140,21 @@ Also verify from Hammerspace CLI:
 anvil> node-list
 # Confirm all target nodes show "Healthy" state
 ```
+
+### Step 1b: Capture a Configuration Baseline (OS upgrades / kernel patches)
+
+If the maintenance changes the operating system — kernel patch, `dnf
+upgrade`, `apt full-upgrade`, distro point release — capture each node's
+configuration **before** touching it. Collection is read-only.
+
+```bash
+./scripts/run.sh playbook os_upgrade_snapshot.yml -i inventory.yml \
+  --limit 'cri22cn409,cri22cn410' \
+  -e snapshot_phase=pre -e snapshot_run=2026-10-rack22-patch
+```
+
+Use one `snapshot_run` name per maintenance window. A second `pre` for the
+same run is refused, so a post-upgrade state can never overwrite the baseline.
 
 ### Step 2: Disable Availability Drop
 
@@ -206,6 +226,45 @@ ssh root@cri22cn409 'df -h | grep hammerspace'
 # Verify RAID health (if software RAID)
 ssh root@cri22cn409 'cat /proc/mdstat'
 ```
+
+### Step 1b: Compare Configuration Against the Baseline (if you captured one)
+
+```bash
+./scripts/run.sh playbook os_upgrade_snapshot.yml -i inventory.yml \
+  --limit 'cri22cn409,cri22cn410' \
+  -e snapshot_phase=post -e snapshot_run=2026-10-rack22-patch
+```
+
+Read `snapshots/2026-10-rack22-patch/SUMMARY.txt`, then each host's
+`diff.html`. Anything marked **critical** (RAID, mounts, exports, nfsd
+runtime, NVMe controllers, NIC names) must be explained before you
+re-enable availability-drop. The usual upgrade casualties, and the fix for
+each:
+
+| Report shows | Likely cause | Fix |
+|--------------|--------------|-----|
+| `raid.mdstat`: `md0` → `md127` | new initramfs without `mdadm.conf` | `dracut --force` / `update-initramfs -u`, reboot |
+| `nfs.runtime`: `threads=128` → `8` | `/etc/nfs.conf` replaced; `.rpmnew` / `.dpkg-*` listed under `packages.config_leftovers` | re-apply `--tags discovery,nfs` |
+| `sunrpc_tcp_slot_table_entries` 128 → 2, `nfsd_direct_io` changed | modprobe/sysctl tuning not applied on the new kernel | re-apply `--tags discovery,perf` |
+| `services.key_units`: `irqbalance` active again | package update re-enabled it | re-apply `--tags discovery,perf` (IRQ pinning) |
+| `net.links`: interface renamed | NIC naming changed with the kernel/driver | update `perf_irq_pin_interfaces` and any IP-based config, re-apply `--tags discovery,perf` |
+| `storage.queue_settings`: `read_ahead_kb` back to 128 | udev rule / `set-readahead.service` not applied | re-apply `--tags discovery,perf` |
+
+Re-apply against just the affected node, previewing first:
+
+```bash
+./scripts/run.sh playbook site.yml -i inventory.yml --limit cri22cn409 \
+  --tags discovery,nfs --check --diff      # preview
+./scripts/run.sh playbook site.yml -i inventory.yml --limit cri22cn409 \
+  --tags discovery,nfs                     # apply
+```
+
+`discovery` must accompany `nfs`/`perf`: it computes the mount and export
+list those roles template from. It only plans — arrays and filesystems are
+created by the `raid` / `filesystem` roles, which these tags do not select.
+Afterwards, capture again with
+`-e snapshot_phase=post` (it overwrites `post.txt` and keeps every capture
+as `post-<timestamp>.txt`) and confirm the report is clean.
 
 ### Step 2: Health Check via Hammerspace API
 
@@ -737,6 +796,7 @@ ansible-playbook site-onprem-nvme.yml -i inventory.yml --limit <NODE> --tags ham
 
 ```bash
 # PRE-SHUTDOWN
+./scripts/run.sh playbook os_upgrade_snapshot.yml --limit <NODE> -e snapshot_phase=pre -e snapshot_run=<WINDOW>   # OS changes only
 python3 set_availability_drop.py --host <ANVIL> --user admin --password-file ~/.hs_password --node <NODE> --check
 python3 set_availability_drop.py --host <ANVIL> --user admin --password-file ~/.hs_password --node <NODE> --disable --dry-run
 python3 set_availability_drop.py --host <ANVIL> --user admin --password-file ~/.hs_password --node <NODE> --disable
@@ -744,6 +804,7 @@ python3 set_availability_drop.py --host <ANVIL> --user admin --password-file ~/.
 # MAINTENANCE (reboot, patch, etc.)
 
 # POST-RESTART
+./scripts/run.sh playbook os_upgrade_snapshot.yml --limit <NODE> -e snapshot_phase=post -e snapshot_run=<WINDOW>  # then read snapshots/<WINDOW>/SUMMARY.txt
 python3 set_availability_drop.py --host <ANVIL> --user admin --password-file ~/.hs_password --node <NODE> --health-check
 python3 set_availability_drop.py --host <ANVIL> --user admin --password-file ~/.hs_password --node <NODE> --enable
 ```

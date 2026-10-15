@@ -761,6 +761,8 @@ one AZ.
 
 ### 6.1 Edit vars/main.yml
 
+> **Prefer a form?** `python3 gui/tier0_gui.py` opens a local configuration GUI that presents these variables as labelled fields with their defaults and help text, previews the exact diff, and changes only the lines you edit (comments are preserved, a backup is kept). Its Azure menu edits `inventory.azure.yml` (resource groups, `conditional_groups`), and **Show resolved inventory** runs `ansible-inventory --graph` so you can confirm the `storage_servers` filter before deploying. See [gui/README.md](gui/README.md).
+
 #### Hammerspace API Configuration (Required)
 
 ```yaml

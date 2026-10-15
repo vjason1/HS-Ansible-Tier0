@@ -59,7 +59,8 @@ if command -v shellcheck >/dev/null 2>&1; then
                    roles/nvme_discovery/files/scan_disks.sh \
                    tests/integration/test_run_sh_locale.sh \
                    tests/integration/test_scan_disks.sh \
-                   tests/integration/test_python_compat.sh
+                   tests/integration/test_python_compat.sh \
+                   scripts/tier0_config_snapshot.sh
 else
     echo "skipping shellcheck (not installed)"
 fi
@@ -91,13 +92,13 @@ fi
 # -- E: ansible-playbook --syntax-check --------------------------------------
 syntax_sweep() {
     local pb bad=0
-    for pb in site.yml plays/*.yml tests/integration/test_*.yml; do
+    for pb in site.yml os_upgrade_snapshot.yml plays/*.yml tests/integration/test_*.yml; do
         ansible-playbook --syntax-check "$pb" -i localhost, >/dev/null 2>&1 \
             && echo "  ✓ $pb" || { echo "  ✗ $pb"; bad=$((bad+1)); }
     done
     return $bad
 }
-step "ansible-playbook --syntax-check (site + plays + tests)" syntax_sweep
+step "ansible-playbook --syntax-check (site + snapshot + plays + tests)" syntax_sweep
 
 # -- F: integration tests (Ansible) ------------------------------------------
 integration_sweep() {
@@ -136,6 +137,16 @@ step "Protected-disk resolver unit tests (scan_disks.sh)" \
 # scheduler while parsing fine everywhere else.
 step "Python version compatibility (*.py)" \
     bash tests/integration/test_python_compat.sh
+
+# -- J: configuration GUI + OS-upgrade snapshot tools ------------------------
+# Surgical YAML/INI editing against the REAL vars/main.yml and ansible.cfg
+# (comments must survive, only the edited key may change), schema coverage
+# (every vars/main.yml key needs a GUI field), command-builder rejection rules,
+# GUI HTTP auth/origin/allow-list, inventory round-trip, the snapshot diff
+# classifier, collector stability + read-only audit, and a real
+# pre -> post -> diff run of os_upgrade_snapshot.yml against localhost.
+step "GUI + OS-upgrade snapshot tests (test_gui_and_snapshot.py)" \
+    python3 tests/integration/test_gui_and_snapshot.py
 
 # -- Summary ------------------------------------------------------------------
 printf '\n=============================================\n'

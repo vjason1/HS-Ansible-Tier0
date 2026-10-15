@@ -38,3 +38,9 @@ Thumbs.db
 # Local-only project instructions (not for GitHub)
 CLAUDE.md
 SKILLS.md
+# Configuration GUI (gui/tier0_gui.py) working directories
+.gui-backups/
+.gui-jobs/
+
+# OS upgrade configuration snapshots (os_upgrade_snapshot.yml) - host config dumps
+snapshots/

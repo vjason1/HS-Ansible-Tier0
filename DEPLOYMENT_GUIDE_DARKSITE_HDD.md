@@ -338,6 +338,8 @@ ansible storage_servers -m setup -a "filter=ansible_distribution*"
 
 ## 6. Configure Variables - HDD with Software RAID
 
+> **Prefer a form?** `python3 gui/tier0_gui.py` opens a local configuration GUI that presents these variables as labelled fields with their defaults and help text, previews the exact diff, and changes only the lines you edit (comments are preserved, a backup is kept). It needs no internet access and no extra packages (Python + PyYAML, which Ansible already brings), so it works on the darksite controller as shipped in the bundle. See [gui/README.md](gui/README.md).
+
 Edit `vars/main.yml` for HDD environments using software RAID (mdadm):
 
 ```yaml

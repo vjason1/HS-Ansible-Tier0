@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tier 0 Configuration · Hammerspace</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <button type="button" class="topbar-menu" id="menu-toggle" aria-controls="rack" aria-label="Show menu">
+      <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+    </button>
+    <a class="topbar-logo" href="#/overview"><img src="/static/hammerspace-logo.png" alt="Hammerspace"></a>
+    <span class="topbar-product">Tier 0 Configuration</span>
+    <div class="topbar-right">
+      <div class="topbar-cell" id="top-repo"><span>REPO:</span><b id="repo-name">—</b></div>
+      <div class="topbar-cell" id="top-clock"></div>
+    </div>
+  </header>
+  <div class="shell">
+    <nav class="rack" id="rack" aria-label="Configuration menus">
+      <div id="nav"></div>
+      <div class="rack-foot">
+        <div id="repo-path"></div>
+        <div id="foot-info"></div>
+      </div>
+    </nav>
+    <main id="main" tabindex="-1">
+      <div id="view"><p class="muted">Loading…</p></div>
+    </main>
+  </div>
+  <div class="savebar" id="savebar" role="region" aria-label="Unsaved changes">
+    <div class="count" id="savebar-count"></div>
+    <button type="button" class="btn" id="savebar-discard">Discard</button>
+    <button type="button" class="btn" id="savebar-preview">Review changes</button>
+    <button type="button" class="btn primary" id="savebar-save">Save to file</button>
+  </div>
+  <dialog id="modal"></dialog>
+  <div class="toast" id="toast" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

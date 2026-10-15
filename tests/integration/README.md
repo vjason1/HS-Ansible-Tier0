@@ -16,6 +16,8 @@ checks (YAML parsing, `bash -n`, `shellcheck`, `yamllint`,
 ```
 
 Exits non-zero if anything fails. Prints a per-step summary at the end.
+It also syntax-checks `os_upgrade_snapshot.yml`, shellchecks
+`scripts/tier0_config_snapshot.sh`, and runs `test_gui_and_snapshot.py`.
 
 ## `test_repo_root.yml`
 
@@ -418,6 +420,25 @@ runs first and is a pure string check.
 ansible-playbook tests/integration/test_existing_mounts.yml -i localhost, -c local
 ```
 
+## `test_gui_and_snapshot.py`
+
+Python `unittest` suite for the configuration GUI (`gui/`) and the
+OS-upgrade snapshot tools. Run directly or via `tests/run_all.sh` (step J):
+
+```bash
+python3 tests/integration/test_gui_and_snapshot.py
+```
+
+| Class | What it proves |
+|-------|----------------|
+| `TestSurgeon` | Edits of the **real** `vars/main.yml`: a scalar edit changes exactly one line and keeps its inline comment; list/dict edits lose no comments; a commented example (`# expected_nvme_count: 9`) is activated directly beneath itself; brand-new keys land next to their neighbours; unset comments out; tricky strings (`yes`, `0755`) round-trip as strings; duplicate keys / non-mapping files are refused. INI edits of `ansible.cfg` touch only the edited lines. |
+| `TestSchema` | Every top-level key in `vars/main.yml` has a GUI field (**add one to `gui/schema.py` when you add a variable**); no duplicates; valid types, enum defaults, `show_if` targets and YAML examples. |
+| `TestCatalog` | Every catalogued playbook/script exists; the command builder rejects unknown playbooks, inventories, tags, option-looking limits and bad extra-var names; `--yes` is added only when dry-run is off. |
+| `TestDiff` | Snapshot diff: identical → exit 0; a typical upgrade is classified correctly (md0→md127 critical, nfsd threads as a key/value change, packages upgraded/removed/added, multi-version kernels, `.rpmnew` surfaced under attention, kernel version info-only); same-boot warning; non-snapshot input → exit 2; fleet summary statuses. |
+| `TestCollector` | (Linux) the collector emits the expected sections and **two consecutive runs are identical** (no volatile noise); a source audit forbids write commands (`mdadm --create`, `mkfs`, `systemctl restart`, `sysctl -w`, `modprobe`, `rm -`, `dracut`, ...). |
+| `TestServer` | GUI HTTP layer on a temp copy of the config: token required, cross-origin POSTs refused, static path traversal refused, file allow-list enforced, preview → save → backup → stale-hash conflict cycle, invalid enum / internal keys rejected, destructive jobs need confirmation, inventory model round-trips both inventory files. |
+| `TestSnapshotPlaybook` | (needs `ansible-playbook`) real run against localhost: `post` without a baseline fails and leaves no directory; `pre` succeeds; a second `pre` refuses to overwrite; `post` writes `post.txt`, `diff.{txt,html,json}` and `SUMMARY.txt`; `diff` rebuilds them. |
+
 ## Running
 
 **Linux only** (except `test_scan_disks.sh`, which runs anywhere) — uses
@@ -488,6 +509,12 @@ Test cases:
 - After any change to `roles/nfs_setup/tasks/main.yml` that references a
   variable registered inside a `when`-guarded block (skipped-result dicts
   lack `rc`/`stdout`/etc. — always guard with `is defined`)
+- After adding or renaming any top-level variable in `vars/main.yml`, or any
+  change under `gui/` (`test_gui_and_snapshot.py`)
+- After any change to `scripts/tier0_config_snapshot.sh`,
+  `scripts/tier0_snapshot_diff.py` or `os_upgrade_snapshot.yml`
+  (`test_gui_and_snapshot.py` — collector stability + read-only audit,
+  diff classification, playbook guards)
 - After any change to `_cloud_az_detected` in `vars/main.yml`, to
   `roles/hammerspace_integration/tasks/az_map.yml` /
   `azure_imds_az.yml` / `add_volume.yml`, or to the AZ columns in

@@ -1,0 +1,272 @@
+---
+# =============================================================================
+# os_upgrade_snapshot.yml — before/after configuration check for OS upgrades
+# =============================================================================
+#
+# Captures a READ-ONLY configuration snapshot of each Tier 0 node before an OS
+# upgrade, captures it again afterwards, and diffs the two so you can see
+# exactly what the upgrade changed: kernel, packages, RAID assembly, mounts,
+# NFS exports and nfsd runtime, perf tunings (sunrpc slots, nfsd direct I/O,
+# read-ahead, IRQ pinning), NIC names/drivers, systemd units, firewall, ...
+#
+# WORKFLOW
+#   1. Before the upgrade:
+#        ./scripts/run.sh playbook os_upgrade_snapshot.yml -e snapshot_phase=pre
+#   2. Upgrade the OS on the node(s) and reboot.
+#   3. After the upgrade:
+#        ./scripts/run.sh playbook os_upgrade_snapshot.yml -e snapshot_phase=post
+#      -> captures post.txt and writes the diff reports automatically.
+#
+#   Re-generate the reports from existing snapshots without contacting hosts:
+#        ./scripts/run.sh playbook os_upgrade_snapshot.yml -e snapshot_phase=diff
+#
+# OUTPUT (on the Ansible controller)
+#   snapshots/<snapshot_run>/
+#     SUMMARY.txt / SUMMARY.json     fleet summary (one line per host)
+#     <host>/pre.txt                 baseline snapshot
+#     <host>/post.txt                post-upgrade snapshot
+#     <host>/pre-<UTC>.txt ...       timestamped archive of every capture
+#     <host>/diff.txt|.html|.json    diff reports (post phase / diff phase)
+#
+# VARIABLES (pass with -e)
+#   snapshot_phase       pre | post | diff                       (REQUIRED)
+#   snapshot_run         run name / subdirectory   default: os-upgrade
+#                        Use one name per maintenance window, e.g.
+#                        -e snapshot_run=2026-10-rocky-9.5
+#   snapshot_hosts       host pattern              default: storage_servers
+#                        e.g. -e snapshot_hosts=di_nodes or 'storage_servers:di_nodes'
+#   snapshot_root        output directory          default: <repo>/snapshots
+#   snapshot_overwrite   allow replacing an existing pre.txt  default: false
+#   snapshot_mount_root  Tier 0 mount root         default: mount_base_path or /hammerspace
+#
+# SAFETY
+#   * Nothing is changed on the nodes. The collector only queries state; the
+#     only remote write is a temporary copy of the script under the remote
+#     user's temp directory, removed at the end.
+#   * A second "pre" run REFUSES to overwrite an existing baseline (that would
+#     silently replace the pre-upgrade state with post-upgrade state). Use a
+#     new snapshot_run, or -e snapshot_overwrite=true if you really mean it.
+#   * "post" refuses to run for a host that has no pre.txt.
+#   * Safe in --check mode: all reads run anyway (check_mode: false) so you
+#     can preview; controller-side writes are skipped.
+#
+# The collector can also be run by hand without Ansible:
+#   sudo bash scripts/tier0_config_snapshot.sh > pre.txt
+#   python3 scripts/tier0_snapshot_diff.py pre.txt post.txt --html diff.html
+# =============================================================================
+
+- name: OS upgrade configuration snapshot ({{ snapshot_phase | default('?') }})
+  hosts: "{{ snapshot_hosts | default('storage_servers') }}"
+  become: true
+  gather_facts: false
+
+  vars_files:
+    - vars/main.yml
+
+  vars:
+    _phase: "{{ snapshot_phase | default('') | string | lower | trim }}"
+    _run: "{{ snapshot_run | default('os-upgrade') | string | trim }}"
+    _root: "{{ snapshot_root | default(repo_root ~ '/snapshots') }}"
+    _run_dir: "{{ _root }}/{{ _run }}"
+    _host_dir: "{{ _run_dir }}/{{ inventory_hostname }}"
+    _overwrite: "{{ snapshot_overwrite | default(false) | bool }}"
+    _mount_root: "{{ snapshot_mount_root | default(mount_base_path | default('/hammerspace')) }}"
+    _collector: "{{ repo_root }}/scripts/tier0_config_snapshot.sh"
+    _differ: "{{ repo_root }}/scripts/tier0_snapshot_diff.py"
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # Validate input (controller only)
+    # -------------------------------------------------------------------------
+    - name: Validate snapshot_phase
+      ansible.builtin.assert:
+        that:
+          - _phase in ['pre', 'post', 'diff']
+          - _run | length > 0
+          - "'/' not in _run and '..' not in _run"
+        fail_msg: >-
+          Set -e snapshot_phase=pre (before the upgrade), post (after it), or
+          diff (rebuild reports from existing snapshots). snapshot_run must be
+          a simple name without '/' (got '{{ _run }}').
+        quiet: true
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    - name: Look for an existing baseline (pre.txt)
+      ansible.builtin.stat:
+        path: "{{ _host_dir }}/pre.txt"
+      register: _pre_stat
+      delegate_to: localhost
+      become: false
+
+    - name: Look for an existing post-upgrade snapshot (post.txt)
+      ansible.builtin.stat:
+        path: "{{ _host_dir }}/post.txt"
+      register: _post_stat
+      delegate_to: localhost
+      become: false
+
+    - name: Refuse to overwrite an existing baseline
+      ansible.builtin.fail:
+        msg: >-
+          {{ _host_dir }}/pre.txt already exists. Overwriting it would replace
+          the pre-upgrade baseline. If this node has NOT been upgraded yet and
+          you want a fresh baseline, re-run with -e snapshot_overwrite=true, or
+          start a new run with -e snapshot_run=<new-name>.
+      when: _phase == 'pre' and _pre_stat.stat.exists and not _overwrite
+
+    - name: Refuse post/diff without a baseline
+      ansible.builtin.fail:
+        msg: >-
+          No baseline at {{ _host_dir }}/pre.txt. Run with -e snapshot_phase=pre
+          {{ '-e snapshot_run=' ~ _run if _run != 'os-upgrade' else '' }} before
+          upgrading this node.
+      when: _phase in ['post', 'diff'] and not _pre_stat.stat.exists
+
+    - name: Refuse diff without a post-upgrade snapshot
+      ansible.builtin.fail:
+        msg: "No {{ _host_dir }}/post.txt yet — run with -e snapshot_phase=post first."
+      when: _phase == 'diff' and not _post_stat.stat.exists
+
+    - name: Create the run directory on the controller
+      ansible.builtin.file:
+        path: "{{ _host_dir }}"
+        state: directory
+        mode: "0750"
+      delegate_to: localhost
+      become: false
+
+    - name: Timestamp for this capture
+      ansible.builtin.set_fact:
+        _stamp: "{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}"
+      run_once: true
+      delegate_to: localhost
+      become: false
+
+    # -------------------------------------------------------------------------
+    # Capture (pre / post)
+    # -------------------------------------------------------------------------
+    - name: Capture configuration snapshot on the node
+      when: _phase in ['pre', 'post']
+      block:
+        - name: Create a private temp directory on the node
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: tier0snap.
+          register: _tmp
+          check_mode: false
+
+        - name: Copy the collector script
+          ansible.builtin.copy:
+            src: "{{ _collector }}"
+            dest: "{{ _tmp.path }}/tier0_config_snapshot.sh"
+            mode: "0700"
+          check_mode: false
+
+        - name: Run the collector (read-only)
+          ansible.builtin.shell: >-
+            TIER0_MOUNT_ROOT={{ _mount_root | quote }}
+            bash {{ (_tmp.path ~ '/tier0_config_snapshot.sh') | quote }}
+            > {{ (_tmp.path ~ '/snapshot.txt') | quote }}
+          args:
+            executable: /bin/bash
+          changed_when: false
+          check_mode: false
+
+        - name: Fetch the snapshot (timestamped archive copy)
+          ansible.builtin.fetch:
+            src: "{{ _tmp.path }}/snapshot.txt"
+            dest: "{{ _host_dir }}/{{ _phase }}-{{ _stamp }}.txt"
+            flat: true
+          check_mode: false
+
+        - name: Promote the capture to {{ _phase }}.txt
+          ansible.builtin.copy:
+            src: "{{ _host_dir }}/{{ _phase }}-{{ _stamp }}.txt"
+            dest: "{{ _host_dir }}/{{ _phase }}.txt"
+            mode: "0640"
+          delegate_to: localhost
+          become: false
+
+      always:
+        - name: Remove the temp directory from the node
+          ansible.builtin.file:
+            path: "{{ _tmp.path }}"
+            state: absent
+          when: _tmp.path is defined
+          check_mode: false
+
+    # -------------------------------------------------------------------------
+    # Diff (post / diff) — runs entirely on the controller
+    # -------------------------------------------------------------------------
+    - name: Diff pre vs post
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python | default('python3') }}"
+          - "{{ _differ }}"
+          - "{{ _host_dir }}/pre.txt"
+          - "{{ _host_dir }}/post.txt"
+          - --quiet
+          - --text
+          - "{{ _host_dir }}/diff.txt"
+          - --html
+          - "{{ _host_dir }}/diff.html"
+          - --json
+          - "{{ _host_dir }}/diff.json"
+      register: _diff
+      changed_when: false
+      failed_when: _diff.rc not in [0, 1]
+      delegate_to: localhost
+      become: false
+      when: _phase in ['post', 'diff']
+
+    - name: Read this host's diff summary
+      ansible.builtin.set_fact:
+        _diff_result: "{{ lookup('ansible.builtin.file', _host_dir ~ '/diff.json') | from_json }}"
+      when: _phase in ['post', 'diff'] and not ansible_check_mode
+
+    - name: Per-host result
+      ansible.builtin.debug:
+        msg: >-
+          {{ 'NO CONFIGURATION CHANGES' if _diff_result.identical else
+             (_diff_result.counts.sections_changed | string) ~ ' section(s) changed — critical: '
+             ~ (_diff_result.counts.critical | string) ~ ', warning: '
+             ~ (_diff_result.counts.warning | string) ~ ', info: '
+             ~ (_diff_result.counts.info | string) }}
+          | report: {{ _host_dir }}/diff.html
+      when: _diff_result is defined
+
+    - name: Build the fleet summary
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python | default('python3') }}"
+          - "{{ _differ }}"
+          - --summary
+          - "{{ _run_dir }}"
+          - --summary-out
+          - "{{ _run_dir }}/SUMMARY.txt"
+          - --summary-json
+          - "{{ _run_dir }}/SUMMARY.json"
+      register: _summary
+      changed_when: false
+      failed_when: _summary.rc not in [0, 1]
+      run_once: true
+      delegate_to: localhost
+      become: false
+      when: _phase in ['post', 'diff'] and not ansible_check_mode
+
+    - name: Fleet summary
+      ansible.builtin.debug:
+        msg: "{{ _summary.stdout_lines }}"
+      run_once: true
+      when: _summary is defined and _summary.stdout_lines is defined
+
+    - name: Next step
+      ansible.builtin.debug:
+        msg:
+          - "Baseline captured in {{ _run_dir }}/<host>/pre.txt"
+          - "Now upgrade the OS and reboot, then run:"
+          - "  ./scripts/run.sh playbook os_upgrade_snapshot.yml -e snapshot_phase=post{{ ' -e snapshot_run=' ~ _run if _run != 'os-upgrade' else '' }}"
+      run_once: true
+      when: _phase == 'pre'
