@@ -1,7 +1,7 @@
 """Background job runner for the GUI.
 
 Each job is one subprocess (argv list, never a shell) whose combined output is
-appended to <repo>/.gui-jobs/<id>.log and streamed to the browser by offset.
+appended to <repo>/logs/gui-jobs/<id>.log and streamed to the browser by offset.
 Secrets (vault password, Hammerspace password) are handed to the child via a
 0600 temp file or the environment, never on the command line, and the temp
 files are removed when the job ends.

@@ -10,6 +10,11 @@ and navigation rail, logo, and health-indicator colors. Each menu's status dot
 uses those colors: yellow for unsaved edits, red for a configuration error,
 green (blinking) on Job History while a job runs.
 
+![Overview page: repository facts, configuration check, common tasks and recent jobs](../docs/images/gui/overview.png)
+
+Screenshots in this guide use three example storage servers (node101–node103) and an example
+Rocky Linux 9.5 → 9.6 upgrade.
+
 - [Starting it](#starting-it)
 - [Menus and the files they edit](#menus-and-the-files-they-edit)
 - [How saving works](#how-saving-works)
@@ -18,6 +23,7 @@ green (blinking) on Job History while a job runs.
 - [Copying the controller's SSH key to hosts](#copying-the-controllers-ssh-key-to-hosts)
 - [Running playbooks and tools](#running-playbooks-and-tools)
 - [OS Upgrade Check](#os-upgrade-check)
+- [Logs & Reports](#logs--reports)
 - [Security model](#security-model)
 - [Troubleshooting](#troubleshooting)
 - [Adding a variable to the GUI](#adding-a-variable-to-the-gui)
@@ -64,6 +70,8 @@ needs `ansible-vault` for encrypted vaults.
 ## Menus and the files they edit
 
 Each menu edits exactly one file. The file is named under the page title.
+
+![Storage Layout menu: each variable with its name, default and help text](../docs/images/gui/config-form.png)
 
 The sidebar groups (Inventory, Tier 0 Configuration, Hammerspace, ...)
 collapse and expand with a click on their heading; **Collapse all** /
@@ -144,6 +152,8 @@ like `yes`, `0755` or `1e3` can't be misread as booleans or numbers.
 `vars/vault.yml` holds `vault_hammerspace_api_password` and the other
 secrets that `vars/main.yml` references as `{{ vault_... }}`.
 
+![Credentials menu for vars/vault.yml, with the Encrypt button](../docs/images/gui/credentials.png)
+
 - **Plaintext vault:** the page warns and offers **Encrypt vars/vault.yml**.
   After encryption the plaintext backup is deleted, so the secret doesn't
   linger in `.gui-backups/`.
@@ -185,6 +195,8 @@ The **Static Hosts** menu edits `inventory.yml` (or the AZ-grouped sample
 `inventory.az.yml`) as a tree: groups → optional AZ subgroups → hosts, with
 `ansible_host` as its own column and other variables as `key=value` lines
 (`true`/`false` and integers are typed automatically).
+
+![Static Hosts menu: storage_servers group with three hosts and its group variables](../docs/images/gui/static-hosts.png)
 
 Nesting hosts under `AZ1`, `AZ2`, ... subgroups is how on-prem deployments get
 AZ prefixes (`hammerspace_volume_az_prefix_enabled: true`), and how DI nodes
@@ -263,6 +275,9 @@ UTF-8 locale fix and per-run logging apply) from:
 - playbook-specific extras (`deploy_di`, `hammerspace_serial`,
   `reset_confirm`, `decommission_confirm`, ...) and free-form `key=value` extra vars.
 
+
+![Run Playbooks: playbook, inventory, check mode and tag selection](../docs/images/gui/run-playbooks.png)
+
 The exact command is shown before you run it.
 
 **Remembered inventory.** Whatever inventory files you tick on Run Playbooks or
@@ -278,6 +293,8 @@ run is kept in **Job History** (`logs/gui-jobs/`), where a running job can be st
 A finished job links to its **Ansible log** and offers **Upload these logs to
 Hammerspace…** (see [Logs & Reports](#logs--reports)).
 
+![A finished job with its command and streamed Ansible output](../docs/images/gui/job-output.png)
+
 **Hammerspace Utilities** has a form for each cluster-side tool
 (`cleanup_instance_nodes.py`, `set_availability_drop.py`,
 `set_volume_thresholds.py`, `add_volumes_to_group.py`,
@@ -288,9 +305,15 @@ has no terminal here). The Hammerspace password is given as a password file or
 passed through the `HAMMERSPACE_PASSWORD` environment variable — never on the
 command line.
 
+
+![Hammerspace Utilities: the remove nodes & volumes form, dry run on](../docs/images/gui/utilities.png)
+
 ## OS Upgrade Check
 
 A guided page for [`os_upgrade_snapshot.yml`](../docs/os-upgrade-check.md):
+
+![OS Upgrade Check: run settings, the four steps and the per-host results of a run](../docs/images/gui/upgrade-check.png)
+
 
 1. **Capture the baseline** before touching the OS (`pre`).
 2. **Upgrade and reboot** with your normal process.
@@ -304,6 +327,8 @@ A guided page for [`os_upgrade_snapshot.yml`](../docs/os-upgrade-check.md):
 *Compare two other captures of this host* diffs any two archived captures,
 e.g. the baseline against a second post-upgrade capture taken after you fixed
 something. The HTML / text reports and the raw snapshots open in a new tab.
+
+![Upgrade report for one host: counts, what needs attention, and key facts before and after](../docs/images/gui/upgrade-report.png)
 
 ## Logs & Reports
 
@@ -329,6 +354,10 @@ more* page through files of any size, and the line filter narrows what is
 shown. Each Ansible log links to the GUI job that ran it and back. The
 *Activity* tab shows the audit trail.
 
+![Logs & Reports: every Ansible log, GUI job and report, with filters and upload](../docs/images/gui/logs-reports.png)
+
+![Log viewer showing the end of an Ansible log](../docs/images/gui/log-viewer.png)
+
 **Retention.** Logs older than the retention period (default **365 days**;
 `0` keeps everything) are deleted every 6 hours and when you press *Apply
 retention now*. Reports, the live `ansible.log` / `gui-audit.log` and the logs
@@ -345,6 +374,8 @@ intake as `HS_PS_Toolkit.sh`:
 POST https://v1proto.sc.hammerspace.com/upload/   (multipart/form-data)
   payload=prosvcs  cluster_id=manual  payload_type=prosvcs  file=@<bundle>.tar.gz
 ```
+
+![Upload to Hammerspace dialog with initials, customer and note](../docs/images/gui/upload-dialog.png)
 
 - The bundle is `tier0_bundle_<host>_<YYYYmmdd_HHMMSS>.tar.gz`; its top folder is
   `<INITIALS>-<CUSTOMER>-tier0_<host>_<time>` when initials and customer are
@@ -395,7 +426,8 @@ so it is locked down by default:
 - Strict Content-Security-Policy; page content from files and logs is always
   inserted as text, never as HTML.
 - Logs and reports are served only from `logs/`, `snapshots/` and the named report
-  files, by id, after a path check — never arbitrary files.
+  files, by id, after a path check — never arbitrary files. Documentation
+  screenshots are served only from `docs/images/` (PNG, JPEG, GIF, WebP; no SVG).
 - Every change and run is recorded in `logs/gui-audit.log` (who, from where, what).
 - `--read-only` disables every write and run.
 

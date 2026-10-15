@@ -422,6 +422,21 @@ class TestServer(unittest.TestCase):
                          {"changes": {"repo_root": {"action": "set", "value": "/"}}})
         self.assertEqual(st, 400)
 
+    def test_doc_images(self):
+        img_dir = os.path.join(self.repo_dir, "docs", "images", "gui")
+        os.makedirs(img_dir, exist_ok=True)
+        with open(os.path.join(img_dir, "shot.png"), "wb") as fh:
+            fh.write(b"\x89PNG\r\n\x1a\n" + b"0" * 16)
+        with open(os.path.join(img_dir, "evil.svg"), "w") as fh:
+            fh.write("<svg onload='alert(1)'/>")
+        st, body = self.req("GET", "/api/doc/image?path=docs/images/gui/shot.png")
+        self.assertEqual(st, 200)
+        self.assertTrue(body.startswith(b"\x89PNG"))
+        self.assertEqual(self.req("GET", "/api/doc/image?path=docs/images/gui/shot.png", token=None)[0], 401)
+        for bad in ("docs/images/gui/evil.svg", "vars/vault.yml", "docs/images/../../vars/vault.yml",
+                    "../../etc/passwd", "/etc/passwd", "docs/images/gui/missing.png", ""):
+            self.assertEqual(self.req("GET", "/api/doc/image?path=" + bad)[0], 404, bad)
+
     def test_files_allow_list(self):
         self.assertEqual(self.req("GET", "/api/file?path=../../etc/passwd")[0], 403)
         self.assertEqual(self.req("GET", "/api/file?path=site.yml")[0], 403)
@@ -640,6 +655,26 @@ class TestDocLinks(unittest.TestCase):
                 if m:
                     out.add(self.slug(m.group(1)))
         return out
+
+    def test_screenshots(self):
+        """README screenshots exist, are real PNGs under docs/images/, are all used, and stay small."""
+        used = set()
+        for doc in ("README.md", "gui/README.md"):
+            text = read(doc)
+            refs = re.findall(r'!\[[^\]]*\]\(([^)\s]+)\)', text) + re.findall(r'<img\s[^>]*src="([^"]+)"', text)
+            self.assertTrue(refs, doc + " has no screenshots")
+            for ref in refs:
+                full = os.path.normpath(os.path.join(REPO, os.path.dirname(doc), ref))
+                rel = os.path.relpath(full, REPO).replace(os.sep, "/")
+                self.assertTrue(rel.startswith("docs/images/"), "%s: %s is outside docs/images/" % (doc, ref))
+                with open(full, "rb") as fh:
+                    self.assertEqual(fh.read(8), b"\x89PNG\r\n\x1a\n", rel)
+                used.add(rel)
+        img_dir = os.path.join(REPO, "docs", "images", "gui")
+        for f in os.listdir(img_dir):
+            rel = "docs/images/gui/" + f
+            self.assertIn(rel, used, "unused screenshot " + rel)
+            self.assertLess(os.path.getsize(os.path.join(img_dir, f)), 300 * 1024, rel + " is too large")
 
     def test_relative_links_resolve(self):
         broken = []
