@@ -99,7 +99,8 @@ menus, so unsaved edits or errors are never hidden.
 | Operate | Run Playbooks | — | Command builder + live output for every playbook |
 | | Hammerspace Utilities | — | Forms for the `*.py` cluster tools |
 | | OS Upgrade Check | `snapshots/` | Guided pre/post snapshot and diff reports |
-| | Job History | `.gui-jobs/` | Every run with its full log |
+| | Job History | `logs/gui-jobs/` | Every GUI run with its full output |
+| | Logs & Reports | `logs/`, `snapshots/`, reports | Every Ansible log, GUI job, report and audit entry; view, download, retention, upload to Hammerspace |
 | Reference | Documentation | — | This repository's Markdown guides, rendered offline |
 
 Every field shows its variable name, the documented default and the help
@@ -249,7 +250,7 @@ Notes:
 ## Running playbooks and tools
 
 **Run Playbooks** builds an `./scripts/run.sh playbook ...` command (so the
-UTF-8 locale fix and `~/logs/` logging apply) from:
+UTF-8 locale fix and per-run logging apply) from:
 
 - playbook (every playbook in the repo, with a description),
 - inventory files (`-i`). Your last selection is remembered (see below); the
@@ -273,7 +274,9 @@ inventory runs will use and notes when it differs from `ansible.cfg`, which
 command-line runs without `-i` still use. A run that can destroy data —
 `site.yml` without Check mode, `reset-tier0-host.yml`, the decommission
 playbooks — must be confirmed by typing `RUN`. Output streams live and every
-run is kept in **Job History** (`.gui-jobs/`), where a running job can be stopped.
+run is kept in **Job History** (`logs/gui-jobs/`), where a running job can be stopped.
+A finished job links to its **Ansible log** and offers **Upload these logs to
+Hammerspace…** (see [Logs & Reports](#logs--reports)).
 
 **Hammerspace Utilities** has a form for each cluster-side tool
 (`cleanup_instance_nodes.py`, `set_availability_drop.py`,
@@ -302,6 +305,72 @@ A guided page for [`os_upgrade_snapshot.yml`](../docs/os-upgrade-check.md):
 e.g. the baseline against a second post-upgrade capture taken after you fixed
 something. The HTML / text reports and the raw snapshots open in a new tab.
 
+## Logs & Reports
+
+Every Ansible action is logged and kept on the controller, under `logs/` in the
+repository (gitignored):
+
+| What | Where | Written by |
+|------|-------|------------|
+| One Ansible log per run | `logs/ansible-<time>-<cmd>-<playbook>-<pid>.log` | `scripts/run.sh` (header: who, where, the command with secrets masked) |
+| One Ansible log per GUI run | `logs/ansible-<time>-gui-<playbook>-<id>.log` | the GUI, linked to its job |
+| Runs that bypass `run.sh` | `logs/ansible.log` | `ansible.cfg` `log_path` (catch-all, rotated at 20 MB) |
+| GUI job output | `logs/gui-jobs/<id>.log` + `.json` | the GUI |
+| GUI audit trail | `logs/gui-audit.log` | the GUI: saves, vault encrypt, job start/finish, settings, start-up (JSON lines; rotated at 20 MB) |
+| Upload manifests / kept bundles | `logs/uploads/` | `scripts/hs_upload.py` |
+| Reports | `snapshots/`, `preflight_report.txt`, `instance_report.csv`, `gpu_fabric_data.txt`, `.new_instances_limit` | playbooks and tools |
+
+Older logs written by `run.sh` to `~/logs/` are listed too. GUI job history from
+before this version (`.gui-jobs/`) is moved to `logs/gui-jobs/` on first start.
+
+**Operate → Logs & Reports** lists all of it, newest first, with a filter by
+kind and a search box. *View* opens a log at its end; *Load earlier* / *Load
+more* page through files of any size, and the line filter narrows what is
+shown. Each Ansible log links to the GUI job that ran it and back. The
+*Activity* tab shows the audit trail.
+
+**Retention.** Logs older than the retention period (default **365 days**;
+`0` keeps everything) are deleted every 6 hours and when you press *Apply
+retention now*. Reports, the live `ansible.log` / `gui-audit.log` and the logs
+of running jobs are never deleted. Settings are stored in `.gui-state.json`.
+
+### Uploading to Hammerspace
+
+Tick any logs or reports and press **Upload to Hammerspace…** (the same button is
+on a finished job, on an OS Upgrade Check report and on each upgrade run). It
+runs [`scripts/hs_upload.py`](../scripts/hs_upload.py), which uses the same
+intake as `HS_PS_Toolkit.sh`:
+
+```
+POST https://v1proto.sc.hammerspace.com/upload/   (multipart/form-data)
+  payload=prosvcs  cluster_id=manual  payload_type=prosvcs  file=@<bundle>.tar.gz
+```
+
+- The bundle is `tier0_bundle_<host>_<YYYYmmdd_HHMMSS>.tar.gz`; its top folder is
+  `<INITIALS>-<CUSTOMER>-tier0_<host>_<time>` when initials and customer are
+  given (remembered for next time), plus a `MANIFEST.txt` (host, git commit,
+  note, and a sha256 per file).
+- *Include configuration* adds `vars/main.yml`, `ansible.cfg` and the
+  inventories. **`vars/vault.yml`, vault password files and SSH keys are never
+  included**, whatever you select.
+- Passwords, tokens, keys, `Authorization` headers and `user:password@` in URLs
+  are masked (`********`) in every text file before it is bundled; the manifest
+  records how many values were masked.
+- On success the bundle is deleted and its manifest kept in `logs/uploads/`. On
+  failure the bundle is kept there so you can retry or send it another way.
+  *Build bundle only* skips the upload.
+- TLS is verified by default. The toolkit uses `curl --insecure`; tick *Don't
+  verify TLS* in Settings if your controller can't verify the intake's
+  certificate. The URL can be changed in Settings (or `TIER0_UPLOAD_URL`).
+
+From a shell:
+
+```bash
+python3 scripts/hs_upload.py --initials JV --customer Acme --note "case 1234" \
+    logs/ansible-20261015_101500-playbook-site-12345.log snapshots/20261015-1015
+python3 scripts/hs_upload.py --bundle-only --include-config logs/   # build, don't send
+```
+
 ## Security model
 
 The GUI can edit configuration and run playbooks as the user who started it,
@@ -325,6 +394,9 @@ so it is locked down by default:
 - Secrets are never placed on a command line or written in plaintext.
 - Strict Content-Security-Policy; page content from files and logs is always
   inserted as text, never as HTML.
+- Logs and reports are served only from `logs/`, `snapshots/` and the named report
+  files, by id, after a path check — never arbitrary files.
+- Every change and run is recorded in `logs/gui-audit.log` (who, from where, what).
 - `--read-only` disables every write and run.
 
 ## Troubleshooting
@@ -338,7 +410,9 @@ so it is locked down by default:
 | Save refused: "edit rejected, nothing was written" | The edit didn't verify (e.g. the key appears twice in the file). Fix the file in the Raw File Editor. |
 | "the vault password is incorrect" | Re-enter it; the vault was encrypted with a different password. |
 | Playbook job fails immediately | Check the first lines of the job log — usually a missing collection (`ansible-galaxy collection install -r requirements.yml`) or an unreadable inventory. |
-| Old backups / job logs piling up | `.gui-backups/` keeps 30 per file; `.gui-jobs/` can be deleted at any time (both are gitignored). |
+| Old backups / job logs piling up | `.gui-backups/` keeps 30 per file; logs follow the retention period in Logs & Reports → Settings (both are gitignored). |
+| Upload fails: certificate verify failed | The controller doesn't trust the intake's certificate. Tick *Don't verify TLS* in Logs & Reports → Settings, or install the CA. The bundle is kept in `logs/uploads/`. |
+| Upload fails: cannot reach the server | No route or proxy to the intake. Set `HTTPS_PROXY` before starting the GUI, or use *Build bundle only* and send the file another way. |
 
 ## Adding a variable to the GUI
 

@@ -166,7 +166,8 @@ input[type=checkbox] { accent-color: var(--hs-check); width: 16px; height: 16px;
 .chip.green { border-color: #86cd9b; background: var(--hs-green); color: #17462a; }
 .chip.teal { border-color: var(--hs-active); background: #e3eefa; color: #24518a; }
 
-input[type=text], input[type=number], input[type=password], select, textarea {
+[hidden] { display: none !important; }
+input[type=text], input[type=number], input[type=password], input[type=search], select, textarea {
   width: 100%; background: var(--panel); border: 1px solid var(--line-strong);
   border-radius: 0; padding: 7px 10px; font-size: 14.5px;
 }
@@ -368,3 +369,10 @@ ol.steps li p { margin: 0 0 10px; color: var(--muted); font-size: 14px; max-widt
 }
 
 .doc h1, .doc h2, .doc h3, .doc h4 { scroll-margin-top: calc(var(--topbar-h) + 16px); }
+
+/* Logs & Reports */
+.tagpick label.active { background: var(--primary-soft); border-color: var(--primary); }
+.tagpick input[type=radio] { position: absolute; opacity: 0; width: 1px; height: 1px; }
+table.grid td .btn-row a { white-space: nowrap; }
+pre.log.wrap { max-height: 70vh; }
+table.grid td.num, table.grid td.small { white-space: nowrap; }

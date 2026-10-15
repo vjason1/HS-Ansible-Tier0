@@ -19,8 +19,11 @@ preflight_report.txt
 gpu_fabric_data.txt
 tier0_instances_limit
 
-# Ansible logs
+# Ansible logs (scripts/run.sh, ansible.cfg log_path) and GUI logs/jobs/audit/uploads.
+# The folder itself is kept so ansible.cfg's log_path works on a fresh clone.
 ansible.log
+logs/*
+!logs/README
 
 # DI container build artifacts (on controller if local build)
 di-container-build/

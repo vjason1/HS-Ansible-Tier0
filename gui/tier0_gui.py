@@ -56,6 +56,7 @@ except ImportError:  # pragma: no cover
     sys.exit("PyYAML is required: pip3 install pyyaml  (it is normally installed with Ansible)")
 
 import catalog  # noqa: E402
+import logstore  # noqa: E402
 import schema  # noqa: E402
 from jobs import JobManager  # noqa: E402
 from surgeon import (UNSET, SurgeryError, YamlSurgeon, _IndentedDumper,  # noqa: E402
@@ -822,21 +823,121 @@ def remembered_inventory(repo):
     return inv
 
 
-def _state_post(handler, q):
-    repo = handler.app["repo"]
-    body = handler._body()
-    state = load_state(repo)
-    if "last_inventory" in body:
-        inv = body["last_inventory"]
-        if not isinstance(inv, list) or any(i not in repo.inventory_files() for i in inv):
-            raise ApiError(400, "unknown inventory file")
-        state["last_inventory"] = inv
+_STATE_LOCK = threading.Lock()
+
+
+def save_state(repo, state):
     path = repo.path(STATE_FILE)
     tmp = path + ".tmp"
     with open(tmp, "w") as fh:
         json.dump(state, fh, indent=2)
     os.replace(tmp, path)
+
+
+def log_settings(repo):
+    return logstore.settings_from_state(load_state(repo))
+
+
+def _state_post(handler, q):
+    repo = handler.app["repo"]
+    body = handler._body()
+    with _STATE_LOCK:
+        state = load_state(repo)
+        if "last_inventory" in body:
+            inv = body["last_inventory"]
+            if not isinstance(inv, list) or any(i not in repo.inventory_files() for i in inv):
+                raise ApiError(400, "unknown inventory file")
+            state["last_inventory"] = inv
+        save_state(repo, state)
     handler._send(200, {"ok": True, "state": state})
+
+
+# ===========================================================================
+# Upload to Hammerspace (scripts/hs_upload.py, same intake as HS_PS_Toolkit.sh)
+# ===========================================================================
+def _hs_upload_module(repo):
+    sys.path.insert(0, os.path.join(repo.root, "scripts"))
+    import hs_upload  # noqa: E402
+    return hs_upload
+
+
+def redact_argv(argv):
+    """argv for the audit log: secrets never reach argv by design (files/env), but
+    free-form extra vars could contain one, so mask anyway."""
+    try:
+        return [_hs_upload_module(Handler.app["repo"]).redact_text(str(a))[0] for a in argv]
+    except Exception:  # noqa: BLE001
+        return ["(argv not recorded)"]
+
+
+def build_upload(repo, body):
+    ids = body.get("ids") or []
+    if not ids:
+        raise ApiError(400, "select at least one log or report")
+    paths = []
+    for i in ids:
+        try:
+            paths.append(logstore.resolve(repo.root, i, allow_dirs=True))
+        except logstore.LogError:
+            raise ApiError(400, "not a log or report: %s" % i)
+    st = log_settings(repo)
+    initials = str(body.get("initials", st["upload_initials"]) or "").strip()
+    customer = str(body.get("customer", st["upload_customer"]) or "").strip()
+    try:
+        logstore.validate_settings({"upload_initials": initials, "upload_customer": customer})
+    except logstore.LogError as exc:
+        raise ApiError(400, str(exc))
+    note = re.sub(r"[\x00-\x1f]", " ", str(body.get("note") or ""))[:500]
+    argv = [sys.executable, os.path.join(repo.root, "scripts", "hs_upload.py"),
+            "--repo", repo.root, "--url", st["upload_url"]]
+    if initials:
+        argv += ["--initials", initials]
+    if customer:
+        argv += ["--customer", customer]
+    if note:
+        argv += ["--note", note]
+    if not st["upload_verify_tls"]:
+        argv.append("--insecure")
+    if body.get("include_config"):
+        argv.append("--include-config")
+    if body.get("bundle_only"):
+        argv.append("--bundle-only")
+    argv.append("--")
+    argv += paths
+    # Remember the engineer details for next time (like the toolkit asks once per session).
+    with _STATE_LOCK:
+        state = load_state(repo)
+        state.setdefault("logs", {}).update({"upload_initials": initials, "upload_customer": customer})
+        save_state(repo, state)
+    title = ("Build bundle" if body.get("bundle_only") else "Upload to Hammerspace") + \
+        " (%d item%s)" % (len(paths), "" if len(paths) == 1 else "s")
+    meta = {"items": ids, "bundle_only": bool(body.get("bundle_only")), "url": st["upload_url"],
+            "include_config": bool(body.get("include_config"))}
+    return argv, title, meta
+
+
+def run_maintenance(app, reason="scheduled"):
+    """Rotate the append-only logs and apply the retention period."""
+    repo, jm = app["repo"], app["jobs"]
+    days = log_settings(repo)["log_retention_days"]
+    keep = set()
+    for j in jm.running():
+        keep.add("repo:" + os.path.relpath(j.log_path, repo.root).replace(os.sep, "/"))
+        al = (j.meta or {}).get("ansible_log")
+        if al:
+            keep.add("repo:" + al)
+    rotated = logstore.rotate(repo.root)
+    result = logstore.prune(repo.root, days, keep)
+    jm.drop_missing()
+    result.update({"rotated": rotated, "retention_days": days})
+    if result["deleted"] or rotated or reason == "manual":
+        app["audit"].log("logs.maintenance", reason=reason, **result)
+    return result
+
+
+def traceback_print():
+    import traceback
+    traceback.print_exc()
 
 
 def _ssh_keys(handler, q):
@@ -1000,6 +1101,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         with open(full, "rb") as fh:
             self._send(200, fh.read(), ctype)
 
+    def audit(self, event, **fields):
+        try:
+            self.app["audit"].log(event, client=self.client_address[0], **fields)
+        except Exception:  # noqa: BLE001  (never fail a request because auditing failed)
+            traceback_print()
+
     # -- endpoints ----------------------------------------------------------------
     def api_meta(self, q):
         repo = self.app["repo"]
@@ -1061,6 +1168,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, {"file": rel, "diff": diff, "actions": actions})
         if action == "save":
             new_hash, backup = repo.write(rel, new, body.get("base_hash"))
+            self.audit("config.save", file=rel, menu=sid, changes=actions, backup=backup)
             return self._send(200, {"file": rel, "hash": new_hash, "backup": backup,
                                     "actions": actions, "diff": diff})
         raise ApiError(404, "unknown action")
@@ -1081,6 +1189,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 os.unlink(repo.path(backup))
             except OSError:
                 pass
+        self.audit("vault.encrypt", file="vars/vault.yml")
         self._send(200, {"hash": new_hash, "encrypted": True})
 
     def api_file_get(self, q):
@@ -1118,6 +1227,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if action == "preview":
             return self._send(200, {"diff": diff})
         new_hash, backup = repo.write(rel, new, body.get("base_hash"))
+        self.audit("config.save", file=rel, menu="raw-editor", lines_changed=len(
+            [l for l in diff if l[:1] in "+-" and not l.startswith(("+++", "---"))]), backup=backup)
         self._send(200, {"hash": new_hash, "backup": backup, "diff": diff})
 
     def api_inventory_get(self, q):
@@ -1136,6 +1247,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if action == "preview":
             return self._send(200, {"diff": diff})
         new_hash, backup = repo.write(rel, new, body.get("base_hash"))
+        self.audit("config.save", file=rel, menu="static-hosts", lines_changed=len(
+            [l for l in diff if l[:1] in "+-" and not l.startswith(("+++", "---"))]), backup=backup)
         self._send(200, {"hash": new_hash, "backup": backup, "diff": diff})
 
     def api_validate(self, q):
@@ -1179,6 +1292,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     raise ApiError(400, "unknown inventory")
                 argv = ["%s/scripts/run.sh" % repo.root, "inventory", "-i", inv, "--graph", "--vars"]
                 title = "ansible-inventory --graph %s" % inv
+            elif kind == "hs_upload":
+                argv, title, umeta = build_upload(repo, body)
+                meta.update(umeta)
             else:
                 raise ApiError(400, "unknown job kind")
         except catalog.CatalogError as exc:
@@ -1199,7 +1315,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     raise ApiError(400, "vault password file %s not found" % vpf)
                 argv += ["--vault-password-file", vpf]
             argv += become_args(repo, body, jm, cleanup)
+        if kind in ("playbook", "inventory_graph"):
+            # A dedicated Ansible log for this run, linked to the job, so the
+            # Logs page can show both the job output and Ansible's own log.
+            label = re.sub(r"[^A-Za-z0-9_.-]", "_", os.path.basename(
+                str(body.get("playbook") or "inventory")).replace(".yml", ""))[:40]
+            rel_log = "logs/ansible-%s-gui-%s-%s.log" % (time.strftime("%Y%m%d_%H%M%S"), label,
+                                                          secrets.token_hex(3))
+            env["ANSIBLE_LOG_PATH"] = repo.path(rel_log)
+            meta["ansible_log"] = rel_log
         job = jm.start(title, argv, env_extra=env, cleanup_paths=cleanup, meta=meta)
+        self.audit("job.start", job=job.id, kind=kind, title=title, argv=redact_argv(argv),
+                   ansible_log=meta.get("ansible_log"))
         self._send(200, job.to_dict())
 
     def api_job(self, q, rest):
@@ -1215,6 +1342,64 @@ class Handler(http.server.BaseHTTPRequestHandler):
         d = job.to_dict()
         d.update({"text": text, "offset": new_offset})
         self._send(200, d)
+
+    # -- logs & reports -----------------------------------------------------------------
+    def api_logs(self, q):
+        repo, jm = self.app["repo"], self.app["jobs"]
+        jm.drop_missing()
+        roots = logstore.roots(repo.root)
+        self._send(200, {"entries": logstore.catalog(repo.root, jm.list()),
+                         "settings": log_settings(repo),
+                         "default_upload_url": logstore.DEFAULT_UPLOAD_URL,
+                         "dirs": {"logs": os.path.join(repo.root, "logs"),
+                                  "legacy": roots.get("home")},
+                         "activity": self.app["audit"].tail(int((q.get("activity") or ["200"])[0]))})
+
+    def _log_path(self, q, allow_dirs=False):
+        try:
+            return logstore.resolve(self.app["repo"].root, (q.get("id") or [""])[0], allow_dirs)
+        except logstore.LogError as exc:
+            raise ApiError(404, str(exc))
+
+    def api_logs_view(self, q):
+        path = self._log_path(q)
+        length = max(1, min(int((q.get("length") or [str(512 * 1024)])[0]), 2 * 1024 * 1024))
+        self._send(200, logstore.read_chunk(path, int((q.get("offset") or ["0"])[0]), length,
+                                            tail=(q.get("tail") or [""])[0] == "1"))
+
+    def api_logs_download(self, q):
+        path = self._log_path(q)
+        name = os.path.basename(path)
+        if (q.get("inline") or [""])[0] == "1" and name.endswith(".html"):
+            with open(path, "rb") as fh:
+                return self._send(200, fh.read(), "text/html; charset=utf-8")
+        ctype = "application/gzip" if name.endswith(".gz") else "text/plain; charset=utf-8"
+        with open(path, "rb") as fh:
+            data = fh.read()
+        self._send(200, data, ctype, {"Content-Disposition": 'attachment; filename="%s"' % name})
+
+    def api_logs_settings(self, q):
+        repo = self.app["repo"]
+        if self.command == "GET":
+            return self._send(200, log_settings(repo))
+        if repo.read_only:
+            raise ApiError(403, "the GUI was started with --read-only")
+        try:
+            changes = logstore.validate_settings(self._body())
+        except logstore.LogError as exc:
+            raise ApiError(400, str(exc))
+        with _STATE_LOCK:
+            state = load_state(repo)
+            state.setdefault("logs", {}).update(changes)
+            save_state(repo, state)
+        self.audit("settings.change", changes={k: v for k, v in changes.items()})
+        self._send(200, log_settings(repo))
+
+    def api_logs_prune(self, q):
+        repo = self.app["repo"]
+        if repo.read_only:
+            raise ApiError(403, "the GUI was started with --read-only")
+        self._send(200, run_maintenance(self.app, reason="manual"))
 
     # -- upgrade ------------------------------------------------------------------------
     def api_upgrade_runs(self, q):
@@ -1302,6 +1487,12 @@ ROUTES[("GET", "/api/docs")] = _docs_list
 ROUTES[("GET", "/api/ssh/keys")] = _ssh_keys
 ROUTES[("POST", "/api/state")] = _state_post
 ROUTES[("GET", "/api/doc")] = _doc_get
+ROUTES[("GET", "/api/logs")] = Handler.api_logs
+ROUTES[("GET", "/api/logs/view")] = Handler.api_logs_view
+ROUTES[("GET", "/api/logs/download")] = Handler.api_logs_download
+ROUTES[("GET", "/api/logs/settings")] = Handler.api_logs_settings
+ROUTES[("POST", "/api/logs/settings")] = Handler.api_logs_settings
+ROUTES[("POST", "/api/logs/prune")] = Handler.api_logs_prune
 
 
 class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
@@ -1326,8 +1517,29 @@ def main(argv=None):
     if not os.path.isfile(repo.path("vars/main.yml")):
         sys.exit("%s does not look like the Tier 0 repo (vars/main.yml missing)" % repo.root)
     token = args.token or secrets.token_urlsafe(18)
-    Handler.app = {"repo": repo, "token": token, "verbose": args.verbose,
-                   "jobs": JobManager(repo.root, os.path.join(repo.root, ".gui-jobs"))}
+    logstore.ensure_dirs(repo.root)
+    migrated = logstore.migrate_legacy_jobs(repo.root)
+    audit = logstore.Audit(repo.root)
+
+    def job_finished(job):
+        audit.log("job.finish", job=job.id, title=job.title, status=job.status, rc=job.returncode,
+                  seconds=round((job.finished or 0) - (job.started or 0), 1),
+                  ansible_log=(job.meta or {}).get("ansible_log"))
+
+    Handler.app = {"repo": repo, "token": token, "verbose": args.verbose, "audit": audit,
+                   "jobs": JobManager(repo.root, os.path.join(repo.root, logstore.JOBS_DIR),
+                                      on_finish=job_finished)}
+    audit.log("gui.start", version=VERSION, read_only=repo.read_only, bind=args.host, port=args.port,
+              migrated_job_files=migrated)
+    if not repo.read_only:
+        def maintenance_loop():
+            while True:
+                try:
+                    run_maintenance(Handler.app)
+                except Exception:  # noqa: BLE001
+                    traceback_print()
+                time.sleep(6 * 3600)
+        threading.Thread(target=maintenance_loop, name="log-maintenance", daemon=True).start()
     try:
         httpd = ThreadingServer((args.host, args.port), Handler)
     except OSError as exc:

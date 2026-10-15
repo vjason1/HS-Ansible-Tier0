@@ -95,7 +95,8 @@ items: Anvil IP still the sample, vault password not set, destructive switch on.
 4. *Vault password* if the vault is encrypted (prefilled once you unlocked
    Credentials). *Sudo password on the hosts* only if sudo asks for one, or tick
    *Use the saved sudo password*.
-5. **Run playbook** — output streams live; every run stays in **Job History**.
+5. **Run playbook** — output streams live; every run stays in **Job History**, and its
+   Ansible log in **Logs & Reports**.
 
 The discovery output shows, per host, which drives were found, which were
 excluded (boot/system disks are always protected) and the RAID arrays that
@@ -126,6 +127,8 @@ creates RAID arrays and filesystems.
 | Remove nodes and volumes from Hammerspace | **Hammerspace Utilities → Remove nodes & volumes** (dry run first) |
 | Full teardown of a host | **Run Playbooks → Reset Tier 0 host** |
 | Re-apply just NFS / perf settings | **Run Playbooks**, tags `discovery` + `nfs` (or `perf`) |
+| Read any run's log, report or the GUI audit trail | **Operate → Logs & Reports** |
+| Send logs or reports to Hammerspace support | **Logs & Reports**: tick them, **Upload to Hammerspace…** ([details](../../gui/README.md#uploading-to-hammerspace)) |
 
 ## Command-line equivalents
 

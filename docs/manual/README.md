@@ -114,7 +114,8 @@ ansible-storage-setup/
 │   ├── schema.py            # Every menu + field (labels, defaults, help) — one entry per variable
 │   ├── surgeon.py           # Comment-preserving YAML / INI editor with post-edit verification
 │   ├── catalog.py           # Playbooks + utility scripts the GUI may run (argv only, no shell)
-│   ├── jobs.py              # Background job runner (logs in .gui-jobs/)
+│   ├── jobs.py              # Background job runner (logs in logs/gui-jobs/)
+│   ├── logstore.py          # Logs & Reports: catalog, viewer, retention, audit
 │   └── static/              # index.html, app.js, style.css (no external assets)
 ├── os_upgrade_snapshot.yml  # Before/after OS-upgrade configuration snapshot + diff
 ├── snapshots/               # Snapshot output: <run>/<host>/pre.txt, post.txt, diff.* (gitignored)
@@ -247,7 +248,8 @@ ansible-galaxy collection install -r requirements.yml
 
 > **Recommended invocation: `./scripts/run.sh playbook ...`.** The wrapper:
 > - Auto-detects an installed UTF-8 locale (`en_US.UTF-8` → `C.UTF-8` → `en_US.utf8` → `C.utf8`) — required on non-English hosts (Korean / CJK / etc.) where Ansible would otherwise abort with `ERROR: Ansible could not initialize the preferred locale`.
-> - Defaults `ANSIBLE_LOG_PATH=${HOME}/logs/ansible-<timestamp>.log` so every run is logged (shell aliases on `ansible-playbook` don't propagate through `exec`, so this is the only reliable way).
+> - Defaults `ANSIBLE_LOG_PATH=<repo>/logs/ansible-<timestamp>-<cmd>-<playbook>-<pid>.log` so every run gets its own log, headed by who ran it and the command (secrets masked). Shell aliases on `ansible-playbook` don't propagate through `exec`, so this is the only reliable way. Runs that skip the wrapper still go to `logs/ansible.log` (`log_path` in `ansible.cfg`).
+> - To send logs or reports to Hammerspace: `python3 scripts/hs_upload.py --initials JV --customer Acme logs/<file>.log snapshots/<run>` (secrets masked, `vars/vault.yml` never included; see [gui/README.md](../../gui/README.md#uploading-to-hammerspace)).
 > - Prints the active locale + log path to stderr on every invocation.
 >
 > Overrides:
@@ -258,7 +260,7 @@ ansible-galaxy collection install -r requirements.yml
 > Or skip the wrapper and configure manually:
 > ```bash
 > export LANG=C.UTF-8 LC_ALL=C.UTF-8
-> export ANSIBLE_LOG_PATH=~/logs/ansible-$(date +%Y%m%d_%H%M%S).log
+> export ANSIBLE_LOG_PATH=$PWD/logs/ansible-$(date +%Y%m%d_%H%M%S).log
 > ansible-playbook site.yml -i inventory.yml
 > ```
 

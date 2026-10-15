@@ -26,6 +26,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -38,6 +39,8 @@ import catalog  # noqa: E402
 import schema  # noqa: E402
 import tier0_gui  # noqa: E402
 import tier0_snapshot_diff as differ  # noqa: E402
+import hs_upload  # noqa: E402
+import logstore  # noqa: E402
 from surgeon import (UNSET, SurgeryError, YamlSurgeon, apply_ini_changes,  # noqa: E402
                      apply_yaml_changes)
 
@@ -355,8 +358,11 @@ class TestServer(unittest.TestCase):
                     "inventory.az.yml", "inventory.oci.yml"):
             shutil.copy(os.path.join(REPO, rel), os.path.join(cls.repo_dir, rel))
         repo = tier0_gui.Repo(cls.repo_dir)
+        logstore.ensure_dirs(cls.repo_dir)
         tier0_gui.Handler.app = {"repo": repo, "token": "tok", "verbose": False,
-                                 "jobs": tier0_gui.JobManager(cls.repo_dir, os.path.join(cls.tmp, "jobs"))}
+                                 "audit": logstore.Audit(cls.repo_dir),
+                                 "jobs": tier0_gui.JobManager(cls.repo_dir,
+                                                              os.path.join(cls.repo_dir, logstore.JOBS_DIR))}
         cls.httpd = tier0_gui.ThreadingServer(("127.0.0.1", 0), tier0_gui.Handler)
         cls.port = cls.httpd.server_address[1]
         threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
@@ -450,6 +456,42 @@ class TestServer(unittest.TestCase):
         finally:
             os.rename(oci + ".bak", oci)
         self.req("POST", "/api/state", {"last_inventory": []})
+
+    def test_logs_endpoints(self):
+        log = os.path.join(self.repo_dir, "logs", "ansible-20261015_000000-playbook-site-1.log")
+        with open(log, "w") as fh:
+            fh.write("# ===== run.sh header\n# command: playbook site.yml --check\nTASK [x]\n")
+        self.assertEqual(self.req("GET", "/api/logs", token=None)[0], 401)
+        st, d = self.req("GET", "/api/logs")
+        self.assertEqual(st, 200)
+        e = [x for x in d["entries"] if x["name"].endswith("playbook-site-1.log")]
+        self.assertEqual(e[0]["kind"], "ansible")
+        self.assertEqual(e[0]["title"], "playbook site.yml --check")
+        st, v = self.req("GET", "/api/logs/view?id=" + e[0]["id"])
+        self.assertIn("TASK [x]", v["text"])
+        for bad in ("repo:../../etc/passwd", "repo:vars/vault.yml", "repo:logs/../vars/main.yml",
+                    "repo:/etc/passwd", "repo:gui/tier0_gui.py", "nope:x", ""):
+            self.assertEqual(self.req("GET", "/api/logs/view?id=" + bad)[0], 404, bad)
+            self.assertEqual(self.req("GET", "/api/logs/download?id=" + bad)[0], 404, bad)
+        st, raw = self.req("GET", "/api/logs/download?id=" + e[0]["id"])
+        self.assertEqual(st, 200)
+
+    def test_log_settings_and_audit(self):
+        for bad in ({"log_retention_days": -1}, {"log_retention_days": 99999}, {"upload_url": "ftp://x"},
+                    {"upload_initials": "J V"}, {"upload_customer": "a;b"}):
+            self.assertEqual(self.req("POST", "/api/logs/settings", bad)[0], 400, bad)
+        st, sv = self.req("POST", "/api/logs/settings", {"log_retention_days": 30})
+        self.assertEqual(st, 200, sv)
+        sv = sv.get("settings", sv)
+        self.assertEqual(sv["log_retention_days"], 30)
+        self.assertEqual(sv["upload_url"], logstore.DEFAULT_UPLOAD_URL)
+        events = [a["event"] for a in tier0_gui.Handler.app["audit"].tail()]
+        self.assertIn("settings.change", events)
+
+    def test_upload_job_refuses_non_logs(self):
+        for ids in (["repo:vars/vault.yml"], ["repo:../../etc/passwd"], []):
+            st, d = self.req("POST", "/api/jobs", {"kind": "hs_upload", "ids": ids})
+            self.assertEqual(st, 400, ids)
 
     def test_job_rejects_unconfirmed_destructive(self):
         st, d = self.req("POST", "/api/jobs", {"kind": "playbook", "playbook": "site.yml"})
@@ -637,6 +679,272 @@ class TestDocLinks(unittest.TestCase):
         docs = tier0_gui.doc_list(tier0_gui.Repo(REPO))
         for must in ("README.md", "docs/gui/oci.md", "docs/manual/README.md", "docs/os-upgrade-check.md"):
             self.assertIn(must, docs)
+
+
+# ===========================================================================
+class TestUpload(unittest.TestCase):
+    """scripts/hs_upload.py — redaction, bundle, and the toolkit's multipart request."""
+
+    KEEP = ["net.bridge.bridge-nf-pass-vlan-input-dev = 0", "net.ipv4.ipfrag_secret_interval = 0",
+            "password_policy_url: http://x", "token_expiry_seconds: 3600",
+            'di_k8s_image_pull_secret: "hammerspace-di-pull"',
+            '"hammerspace_api_password": "{{ vault_hammerspace_api_password }}"',
+            "export GOOGLE_APPLICATION_CREDENTIALS=/path/sa.json",
+            "ansible_ssh_private_key_file=/root/.ssh/id_ed25519"]
+    MASK = ["ansible_become_password=Sup3r", "ansible_become_pass: Sup3r", "ansible_ssh_pass=x1",
+            '"vault_hammerspace_api_password": "RealPw1"', "hammerspace_api_password: plain",
+            'vault_s3_secret_key: "wJal"', "export AWS_SECRET_ACCESS_KEY=AKIA", "export AWS_ACCESS_KEY_ID=AKIA2",
+            '{"token": "abc.def"}', '"password":"p"', '-H "Authorization: Basic YWRtaW46U2VjcjN0"',
+            "curl -sk -u 'admin:Hunter2' https://anvil", "url=https://bob:pa55@host/x",
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----"]
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.repo = os.path.join(self.tmp, "repo")
+        os.makedirs(os.path.join(self.repo, "logs"))
+        os.makedirs(os.path.join(self.repo, "vars"))
+        self.log = os.path.join(self.repo, "logs", "ansible-1.log")
+        with open(self.log, "w") as fh:
+            fh.write("\n".join(self.MASK + self.KEEP) + "\n")
+        with open(os.path.join(self.repo, "vars", "vault.yml"), "w") as fh:
+            fh.write("vault_hammerspace_api_password: secret\n")
+        self.up = os.path.join(self.repo, "logs", "uploads")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def run_upload(self, *args):
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return hs_upload.main(["--repo", self.repo] + list(args))
+
+    def bundles(self):
+        return sorted(f for f in os.listdir(self.up) if f.endswith(".tar.gz")) if os.path.isdir(self.up) else []
+
+    def test_redaction_matrix(self):
+        for line in self.KEEP:
+            self.assertEqual(hs_upload.redact_text(line), (line, 0), "must stay readable: " + line)
+        for line in self.MASK:
+            out, n = hs_upload.redact_text(line)
+            self.assertGreater(n, 0, "must be masked: " + line)
+            self.assertIn("********", out)
+
+    def test_bundle_contents_and_names(self):
+        import tarfile
+        vault = os.path.join(self.repo, "vars", "vault.yml")
+        self.assertEqual(self.run_upload("--bundle-only", "--initials", "JV", "--customer", "Acme",
+                                         self.log, vault), 0)
+        self.assertEqual(self.run_upload("--bundle-only", self.log), 0)       # same second
+        self.assertEqual(len(self.bundles()), 2, "a second bundle must not overwrite the first")
+        for b in self.bundles():
+            self.assertRegex(b, r"^tier0_bundle_[A-Za-z0-9._\-]+_\d{8}_\d{6}(-\d+)?\.tar\.gz$")
+        with tarfile.open(os.path.join(self.up, self.bundles()[0])) as tar:
+            names = tar.getnames()
+            data = {m.name: tar.extractfile(m).read().decode() for m in tar.getmembers() if m.isfile()}
+        tops = {n.split("/")[0] for n in names}
+        top = [t for t in tops if t.startswith("JV-Acme-tier0_")]
+        if not top:   # same-second ordering: the other bundle is first
+            with tarfile.open(os.path.join(self.up, self.bundles()[1])) as tar:
+                names = tar.getnames()
+                data = {m.name: tar.extractfile(m).read().decode() for m in tar.getmembers() if m.isfile()}
+            top = [n.split("/")[0] for n in names if n.startswith("JV-Acme-tier0_")]
+        top = top[0]
+        self.assertFalse(any(n.endswith("vault.yml") for n in names), "vault.yml must never be bundled")
+        log_text = data[top + "/logs/ansible-1.log"]
+        for secret in ("Sup3r", "RealPw1", "Hunter2", "pa55", "AKIA", "YWRtaW46U2VjcjN0", "wJal"):
+            self.assertNotIn(secret, log_text)
+        for kept in self.KEEP:
+            self.assertIn(kept, log_text)
+        self.assertIn("MANIFEST.txt", " ".join(data))
+
+    def test_rejects_bad_names(self):
+        self.assertEqual(self.run_upload("--bundle-only", "--initials", "J V", self.log), 2)
+        self.assertEqual(self.run_upload("--bundle-only", "--prefix", "../x", self.log), 2)
+        self.assertEqual(self.bundles(), [])
+
+    def test_multipart_matches_toolkit_and_failure_keeps_bundle(self):
+        import http.server
+        from email.parser import BytesParser
+        from email.policy import default as email_default
+        got = {}
+
+        class Intake(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                n = self.headers.get("Content-Length")
+                body = self.rfile.read(int(n)) if n else b""
+                msg = BytesParser(policy=email_default).parsebytes(
+                    b"Content-Type: " + self.headers["Content-Type"].encode() + b"\r\n\r\n" + body)
+                for part in msg.iter_parts():
+                    name = part.get_param("name", header="content-disposition")
+                    if part.get_filename():
+                        got["file"] = (part.get_filename(), len(part.get_payload(decode=True)))
+                    else:
+                        got[name] = part.get_content().strip()
+                ok = self.path == "/upload/"
+                self.send_response(200 if ok else 500)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Intake)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        port = srv.server_address[1]
+        os.environ["NO_PROXY"] = os.environ["no_proxy"] = "127.0.0.1,localhost"
+        try:
+            self.assertEqual(self.run_upload("--url", "http://127.0.0.1:%d/upload/" % port, self.log), 0)
+            self.assertEqual({k: got.get(k) for k in ("payload", "cluster_id", "payload_type")},
+                             {"payload": "prosvcs", "cluster_id": "manual", "payload_type": "prosvcs"})
+            self.assertTrue(got["file"][0].startswith("tier0_bundle_") and got["file"][1] > 0, got)
+            self.assertEqual(self.bundles(), [], "bundle deleted after a successful upload")
+            self.assertTrue([f for f in os.listdir(self.up) if f.endswith(".manifest.txt")], "manifest kept")
+            self.assertEqual(self.run_upload("--url", "http://127.0.0.1:%d/broken/" % port, self.log), 1)
+            self.assertEqual(len(self.bundles()), 1, "bundle kept after a failed upload")
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_default_endpoint_is_the_toolkits(self):
+        self.assertEqual(hs_upload.UPLOAD_URL, "https://v1proto.sc.hammerspace.com/upload/")
+        self.assertEqual(logstore.DEFAULT_UPLOAD_URL, hs_upload.UPLOAD_URL)
+        self.assertEqual(dict(hs_upload.FORM_FIELDS),
+                         {"payload": "prosvcs", "cluster_id": "manual", "payload_type": "prosvcs"})
+
+
+# ===========================================================================
+class TestLogStore(unittest.TestCase):
+    """gui/logstore.py — catalog, path authorization, paging, retention, migration."""
+
+    FILES = {
+        "logs/ansible-20261015_000000-playbook-site-1.log": "ansible",
+        "logs/ansible.log": "ansible",
+        "logs/gui-audit.log": "audit",
+        "logs/gui-jobs/20261015-000000-abc123.log": "job",
+        "logs/uploads/tier0_bundle_h_20261015_000000.manifest.txt": "upload",
+        "snapshots/run1/node1/pre.txt": "report",
+        "snapshots/run1/node1/diff.html": "report",
+        "snapshots/run1/SUMMARY.txt": "report",
+        "preflight_report.txt": "report",
+        "instance_report.csv": "report",
+    }
+
+    def setUp(self):
+        self.repo = tempfile.mkdtemp()
+        logstore.ensure_dirs(self.repo)
+        for rel in list(self.FILES) + ["vars/vault.yml", "logs/notes.txt", "snapshots/run1/node1/other.sh"]:
+            p = os.path.join(self.repo, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w") as fh:
+                fh.write("x\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.repo)
+
+    def repo_entries(self):
+        return {e["name"]: e["kind"] for e in logstore.catalog(self.repo) if e["id"].startswith("repo:")}
+
+    def test_catalog_lists_only_logs_and_reports(self):
+        self.assertEqual(self.repo_entries(), self.FILES)
+
+    def test_resolve_refuses_everything_else(self):
+        for rel in self.FILES:
+            self.assertTrue(logstore.resolve(self.repo, "repo:" + rel))
+        self.assertTrue(os.path.isdir(logstore.resolve(self.repo, "repo:snapshots/run1", allow_dirs=True)))
+        os.symlink(os.path.join(self.repo, "vars", "vault.yml"),
+                   os.path.join(self.repo, "logs", "ansible-evil.log"))
+        for bad in ("repo:vars/vault.yml", "repo:logs/notes.txt", "repo:snapshots/run1/node1/other.sh",
+                    "repo:../x", "repo:/etc/passwd", "repo:logs/../vars/vault.yml", "repo:logs/ansible-evil.log",
+                    "repo:snapshots/run1", "repo:logs", "x:y", ""):
+            with self.assertRaises(logstore.LogError, msg=bad):
+                logstore.resolve(self.repo, bad)
+
+    def test_utf8_safe_paging(self):
+        p = os.path.join(self.repo, "logs", "ansible-utf8.log")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("".join("line %04d ✓ résumé 中文 \U0001F642\n" % i for i in range(300)))
+        with open(p, encoding="utf-8") as fh:
+            whole = fh.read()
+        for length in (5, 7, 13, 64, 1000):
+            parts, off = [], 0
+            while True:
+                r = logstore.read_chunk(p, off, length)
+                parts.append(r["text"])
+                off = r["next"]
+                if not r["more_after"]:
+                    break
+            self.assertEqual("".join(parts), whole, "forward, length %d" % length)
+            r = logstore.read_chunk(p, 0, length, tail=True)
+            parts, start = [r["text"]], r["offset"]
+            while start > 0:
+                frm = max(0, start - length)
+                r = logstore.read_chunk(p, frm, start - frm)
+                parts.append(r["text"])
+                start = r["offset"]
+            self.assertEqual("".join(reversed(parts)), whole, "backward, length %d" % length)
+
+    def test_retention(self):
+        old = time.time() - 40 * 86400
+        for rel in self.FILES:
+            os.utime(os.path.join(self.repo, rel), (old, old))
+        running = "repo:logs/gui-jobs/20261015-000000-abc123.log"
+        res = logstore.prune(self.repo, 30, keep_ids={running})
+        left = self.repo_entries()
+        for rel, kind in self.FILES.items():
+            survives = (kind == "report" or rel in ("logs/ansible.log", "logs/gui-audit.log")
+                        or "repo:" + rel == running)
+            self.assertEqual(rel in left, survives, rel)
+        self.assertEqual(res["deleted"], 2)
+        self.assertEqual(logstore.prune(self.repo, 0)["deleted"], 0, "0 days = keep forever")
+        self.assertEqual(logstore.prune(self.repo, 30)["deleted"], 1, "job log goes once it is not running")
+
+    def test_rotate_and_migrate(self):
+        big = os.path.join(self.repo, "logs", "ansible.log")
+        with open(big, "wb") as fh:
+            fh.truncate(logstore.ROTATE_BYTES + 1)
+        self.assertEqual(logstore.rotate(self.repo), ["logs/ansible.log"])
+        self.assertFalse(os.path.exists(big))
+        self.assertTrue([f for f in os.listdir(os.path.join(self.repo, "logs"))
+                         if f.startswith("ansible-catchall-")])
+        legacy = os.path.join(self.repo, ".gui-jobs")
+        os.makedirs(legacy)
+        for ext in ("log", "json"):
+            with open(os.path.join(legacy, "20261001-000000-old.%s" % ext), "w") as fh:
+                fh.write("{}" if ext == "json" else "old\n")
+        self.assertEqual(logstore.migrate_legacy_jobs(self.repo), 2)
+        self.assertFalse(os.path.exists(legacy))
+        self.assertTrue(os.path.isfile(os.path.join(self.repo, "logs", "gui-jobs", "20261001-000000-old.log")))
+
+    def test_settings_validation(self):
+        self.assertEqual(logstore.validate_settings({"log_retention_days": "0"}), {"log_retention_days": 0})
+        for bad in ({"log_retention_days": -1}, {"upload_url": "javascript:x"}, {"upload_initials": "a b"}):
+            with self.assertRaises(logstore.LogError):
+                logstore.validate_settings(bad)
+
+
+# ===========================================================================
+class TestAnsibleLogging(unittest.TestCase):
+    """Every ansible run in this repo is logged somewhere the GUI can list."""
+
+    def test_ansible_cfg_catch_all_log_path(self):
+        import configparser
+        cp = configparser.RawConfigParser(strict=False, interpolation=None)
+        cp.read(os.path.join(REPO, "ansible.cfg"))
+        self.assertEqual(cp.get("defaults", "log_path"), "logs/ansible.log")
+        # Ansible silently skips logging when the folder is missing, so it ships with the repo.
+        self.assertTrue(os.path.isfile(os.path.join(REPO, "logs", "README")))
+        if os.path.isdir(os.path.join(REPO, ".git")):
+            r = subprocess.run(["git", "-C", REPO, "check-ignore", "-q", "logs/README"])
+            self.assertEqual(r.returncode, 1, "logs/README must be tracked (not ignored)")
+            r = subprocess.run(["git", "-C", REPO, "check-ignore", "-q", "logs/ansible-x.log"])
+            self.assertEqual(r.returncode, 0, "log files must be gitignored")
+
+    def test_scripts_use_run_sh(self):
+        src = read("deploy_new_instances.sh")
+        self.assertNotRegex(src, r"(?m)^\s*ansible-playbook ", "call scripts/run.sh so runs get their own log")
+        self.assertIn("scripts/run.sh", src)
 
 
 @unittest.skipUnless(shutil.which("ansible-playbook") and platform.system() == "Linux",

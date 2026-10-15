@@ -30,7 +30,10 @@ configuration before and after the upgrade and tells you exactly what changed.
 
 The same workflow is a guided four-step page in the GUI (**Operate → OS
 Upgrade Check**), which also renders every report and can compare any two
-archived captures of a host.
+archived captures of a host. Its **Upload to Hammerspace…** buttons send a host's
+reports, or a whole run, to Hammerspace with secrets masked (from a shell:
+`python3 scripts/hs_upload.py snapshots/<run>`); see
+[gui/README.md](../gui/README.md#uploading-to-hammerspace).
 
 | Variable | Default | Meaning |
 |----------|---------|---------|

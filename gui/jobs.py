@@ -19,7 +19,7 @@ import uuid
 
 
 class Job(object):
-    def __init__(self, jobs_dir, title, argv, cwd, env, cleanup_paths, meta):
+    def __init__(self, jobs_dir, title, argv, cwd, env, cleanup_paths, meta, on_finish=None):
         self.id = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
         self.title = title
         self.argv = argv
@@ -34,6 +34,7 @@ class Job(object):
         self.started = None
         self.finished = None
         self.proc = None
+        self.on_finish = on_finish
         self._lock = threading.Lock()
 
     def to_dict(self):
@@ -81,6 +82,11 @@ class Job(object):
                 for p in self.cleanup_paths:
                     shutil.rmtree(p, ignore_errors=True) if os.path.isdir(p) else _unlink(p)
                 self._save_meta()
+                if self.on_finish:
+                    try:
+                        self.on_finish(self)
+                    except Exception:  # noqa: BLE001  (auditing must never break a job)
+                        pass
 
     def stop(self):
         with self._lock:
@@ -123,9 +129,10 @@ def _quote(a):
 
 
 class JobManager(object):
-    def __init__(self, repo, jobs_dir):
+    def __init__(self, repo, jobs_dir, on_finish=None):
         self.repo = repo
         self.jobs_dir = jobs_dir
+        self.on_finish = on_finish
         os.makedirs(jobs_dir, mode=0o700, exist_ok=True)
         self.jobs = {}
         self._load_history()
@@ -155,7 +162,7 @@ class JobManager(object):
         env.update({"ANSIBLE_NOCOLOR": "1", "ANSIBLE_FORCE_COLOR": "0", "NO_COLOR": "1",
                     "PYTHONUNBUFFERED": "1", "ANSIBLE_LOCALHOST_WARNING": "False"})
         env.update(env_extra or {})
-        job = Job(self.jobs_dir, title, argv, self.repo, env, cleanup_paths, meta)
+        job = Job(self.jobs_dir, title, argv, self.repo, env, cleanup_paths, meta, self.on_finish)
         self.jobs[job.id] = job
         job.start()
         return job
@@ -166,6 +173,12 @@ class JobManager(object):
 
     def get(self, job_id):
         return self.jobs.get(job_id)
+
+    def drop_missing(self):
+        """Forget finished jobs whose log was deleted (log retention)."""
+        for jid in [j.id for j in self.jobs.values()
+                    if j.status not in ("running", "stopping", "queued") and not os.path.exists(j.log_path)]:
+            del self.jobs[jid]
 
     def running(self):
         return [j for j in self.jobs.values() if j.status in ("running", "stopping")]

@@ -542,6 +542,20 @@ Not Ansible variables — environment settings for the GUI server. See
 | `TIER0_GUI_PORT` | `8765` | Listen port (same as `--port`). |
 | `TIER0_GUI_TOKEN` | random per start | Fixed access token (same as `--token`). |
 | `TIER0_SSH_PASSWORD` | *(none)* | Password read by `scripts/push_ssh_key.py` (the GUI sets it per run). Never pass the password as an argument. |
+| `TIER0_UPLOAD_URL` | `https://v1proto.sc.hammerspace.com/upload/` | Intake used by `scripts/hs_upload.py` when `--url` is not given (the GUI passes its own setting). |
+
+## Logging (scripts/run.sh, ansible.cfg)
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `ANSIBLE_LOG_PATH` | `<repo>/logs/ansible-<time>-<cmd>-<playbook>-<pid>.log` | Log file for one `scripts/run.sh` run. Set it to choose the file yourself. |
+| `ANSIBLE_LOG_DIR` | `<repo>/logs` | Folder for the per-run logs (ignored when `ANSIBLE_LOG_PATH` is set). |
+| `log_path` (`ansible.cfg`) | `logs/ansible.log` | Catch-all for `ansible-playbook` runs that don't use `scripts/run.sh`. |
+
+GUI settings under **Logs & Reports → Settings** (stored in `.gui-state.json`):
+log retention in days (default `365`, `0` = keep forever; reports are never
+deleted), the upload URL, and whether to verify the upload server's TLS
+certificate (default yes). See [gui/README.md](gui/README.md#logs--reports).
 
 The GUI's runs preselect the inventory you last chose there (stored in
 `.gui-state.json`); the first time, `inventory.yml`, or `ansible.cfg`'s

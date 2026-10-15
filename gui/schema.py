@@ -831,6 +831,7 @@ MENUS = [
         {"id": "utilities", "title": "Hammerspace Utilities", "kind": "utilities"},
         {"id": "upgrade", "title": "OS Upgrade Check", "kind": "upgrade"},
         {"id": "jobs", "title": "Job History", "kind": "jobs"},
+        {"id": "logs", "title": "Logs & Reports", "kind": "logs"},
     ]},
     {"title": "Reference", "items": [
         {"id": "docs", "title": "Documentation", "kind": "docs"},
