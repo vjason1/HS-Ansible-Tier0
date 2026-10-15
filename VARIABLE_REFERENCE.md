@@ -556,6 +556,7 @@ Stored in `vars/vault.yml` (encrypt with `ansible-vault encrypt vars/vault.yml`)
 | Variable | Description |
 |----------|-------------|
 | `vault_hammerspace_api_password` | Hammerspace API admin password. |
+| `vault_become_password` | sudo password on the hosts, only when sudo is not `NOPASSWD`. Must be passed as extra vars because fact gathering needs it before the plays load the vault: `-e @vars/vault.yml -e 'ansible_become_password={{ vault_become_password }}'` (the GUI's "Use the saved sudo password"), or prompt with `-K`. |
 | `vault_ad_username` | Active Directory join username (if AD enabled). |
 | `vault_ad_password` | Active Directory join password (if AD enabled). |
 | `vault_s3_access_key` | S3 access key ID (if S3 enabled). |

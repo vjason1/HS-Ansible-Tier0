@@ -1235,6 +1235,19 @@ oci compute instance list --compartment-id <ocid> --query "data[].shape" --outpu
 
 ### SSH Connection Issues
 
+**Problem:** `Missing sudo password` / `sudo: a password is required`
+
+The SSH user needs a password for sudo. Prompt for it, or keep it in the vault
+as `vault_become_password` and pass it as extra vars (the vault is loaded too
+late by the plays themselves):
+```bash
+ansible-playbook site.yml -i inventory.yml -K
+ansible-playbook site.yml -i inventory.yml -e @vars/vault.yml \
+  -e 'ansible_become_password={{ vault_become_password }}' --ask-vault-pass
+```
+In the GUI: **Sudo password on the hosts** on the Run page, or
+**Credentials → Sudo password for the hosts** + **Use the saved sudo password**.
+
 **Problem:** `Permission denied (publickey)`
 ```bash
 # Verify SSH key path in ansible.cfg

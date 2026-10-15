@@ -957,13 +957,27 @@ async function defaultInventory() {
   } catch (e) { return []; }
 }
 
+// Credentials for a playbook run: Ansible Vault password + sudo (become) password.
+// Shared by Run Playbooks and OS Upgrade Check.
 function vaultControls() {
   const pw = h('input', { type: 'password', id: 'run-vault', autocomplete: 'off', placeholder: S.vaultPw ? 'Using the password from Credentials' : '' });
   const pf = h('input', { type: 'text', id: 'run-vault-file', class: 'mono', placeholder: '~/.vault_pass' });
+  const sudo = h('input', { type: 'password', id: 'run-sudo', autocomplete: 'off', placeholder: 'Leave empty for passwordless sudo' });
+  const saved = h('input', { type: 'checkbox', id: 'run-sudo-saved' });
   return {
     nodes: [h('div', {}, h('label', { for: 'run-vault', text: 'Vault password (if vault.yml is encrypted)' }), pw),
-      h('div', {}, h('label', { for: 'run-vault-file', text: '…or vault password file' }), pf)],
-    read: () => (pw.value || S.vaultPw ? { vault_password: pw.value || S.vaultPw } : (pf.value.trim() ? { vault_password_file: pf.value.trim() } : {})),
+      h('div', {}, h('label', { for: 'run-vault-file', text: '…or vault password file' }), pf),
+      h('div', {}, h('label', { for: 'run-sudo', text: 'Sudo password on the hosts (become)' }), sudo,
+        h('div', { class: 'field-help', text: 'Leave empty if sudo needs no password. Same as ansible-playbook -K: passed through a temporary 0600 file deleted when the job ends.' }),
+        h('div', { class: 'spacer' }),
+        h('label', { class: 'switch' }, saved, h('span', { class: 'track' }), 'Use the saved sudo password'),
+        h('div', { class: 'field-help' }, 'From ', h('a', { href: '#/credentials', text: 'Credentials' }), ' (vault_become_password); needs the vault password if the vault is encrypted.'))],
+    read: () => {
+      const r = pw.value || S.vaultPw ? { vault_password: pw.value || S.vaultPw } : (pf.value.trim() ? { vault_password_file: pf.value.trim() } : {});
+      if (sudo.value) r.become_password = sudo.value;
+      if (saved.checked) r.use_saved_become = true;
+      return r;
+    },
   };
 }
 
@@ -1046,12 +1060,16 @@ async function pageRun(view, preset) {
     if (Object.keys(ev).length) s += " -e '" + JSON.stringify(ev) + "'";
     if (r.vault_password) s += ' --vault-password-file <temp file>';
     if (r.vault_password_file) s += ' --vault-password-file ' + r.vault_password_file;
+    if (r.use_saved_become) s += " -e @vars/vault.yml -e '{\"ansible_become_password\": \"{{ vault_become_password }}\"}'";
+    if (r.become_password) s += ' -e @<temp sudo-password file>';
     cmd.textContent = s;
   }
   [pbSel].forEach((x) => x.addEventListener('change', drawPb));
   [limit, extraText].forEach((x) => x.addEventListener('input', drawCmd));
   [check, diff, verb].forEach((x) => x.addEventListener('change', drawCmd));
   invBox.addEventListener('change', drawCmd);
+  page.addEventListener('input', drawCmd);   // vault / sudo fields etc.
+  page.addEventListener('change', drawCmd);
 
   page.append(h('div', { class: 'form-grid' },
     h('div', { class: 'full' }, h('label', { for: 'pb', text: 'Playbook' }), pbSel, desc),

@@ -154,6 +154,30 @@ secrets that `vars/main.yml` references as `{{ vault_... }}`.
   `ansible-playbook` through a 0600 temporary file that is deleted when the
   job ends), or accept a vault password file.
 
+### Sudo (become) password for the hosts
+
+The playbooks run with `become` (sudo). If the SSH user has passwordless sudo
+(`NOPASSWD`, the default on most cloud images) there is nothing to set. If sudo
+asks for a password, a run fails with *Missing sudo password*. Give it in one
+of two places:
+
+| Where | When to use | How it reaches Ansible |
+|-------|-------------|------------------------|
+| **Run Playbooks / OS Upgrade Check → Sudo password on the hosts** | One-off, or you don't want it stored | 0600 temporary extra-vars file (`-e @file`), deleted when the job ends — the same as `ansible-playbook -K` |
+| **Credentials → Sudo password for the hosts** (`vault_become_password`) + tick **Use the saved sudo password** on the run page | Every run, kept encrypted with your other secrets | `-e @vars/vault.yml -e '{"ansible_become_password": "{{ vault_become_password }}"}'` (the vault password is needed if the vault is encrypted) |
+
+If both are given, the typed one wins. Why not just put it in the vault and be
+done: the plays gather facts — which already needs sudo — *before* their
+`pre_tasks` load `vars/vault.yml`, so the password has to arrive as extra vars.
+The command preview on the Run page shows exactly what is passed (never the
+password itself).
+
+From a terminal the equivalents are `-K` (prompt), or
+`-e @vars/vault.yml -e 'ansible_become_password={{ vault_become_password }}'`
+(add `--ask-vault-pass` / `--vault-password-file` for an encrypted vault).
+Different sudo passwords per host can be set as `ansible_become_password` host
+variables in the inventory (better as vault references than plaintext).
+
 ## Static host inventory
 
 The **Static Hosts** menu edits `inventory.yml` (or the AZ-grouped sample
@@ -232,6 +256,8 @@ UTF-8 locale fix and `~/logs/` logging apply) from:
   default is used only if `inventory.yml` does not exist), `--limit`,
 - tags and skip-tags as checkboxes (only tags that exist in the playbooks),
 - Check mode (**on by default**), `--diff`, verbosity,
+- vault password and sudo password (see
+  [Sudo (become) password](#sudo-become-password-for-the-hosts)),
 - playbook-specific extras (`deploy_di`, `hammerspace_serial`,
   `reset_confirm`, `decommission_confirm`, ...) and free-form `key=value` extra vars.
 

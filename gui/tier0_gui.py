@@ -676,6 +676,49 @@ def _snap_host_dir(repo, run, host):
 
 
 # ===========================================================================
+# sudo (become) password for playbook runs
+# ===========================================================================
+# The plays gather facts (which already needs sudo) BEFORE their pre_tasks load
+# vars/vault.yml, so a sudo password kept only in the vault would arrive too late.
+# Both ways below hand it to ansible-playbook as EXTRA VARS, which exist from the
+# first task on:
+#   * typed for this run  -> 0600 temp file  -e @file  (deleted when the job ends;
+#                            equivalent to --ask-become-pass / -K)
+#   * saved in Credentials -> -e @vars/vault.yml plus a reference to
+#                            vault_become_password (needs the vault password if
+#                            the vault is encrypted)
+BECOME_VAR_REF = {"ansible_become_password": "{{ vault_become_password }}"}
+
+
+def become_args(repo, body, jm, cleanup):
+    args = []
+    if body.get("use_saved_become"):
+        vault = repo.path("vars/vault.yml")
+        if not os.path.isfile(vault):
+            raise ApiError(400, "vars/vault.yml does not exist — set the sudo password under Credentials first")
+        text = repo.read("vars/vault.yml")[0]
+        if is_vault_encrypted(text):
+            if not (body.get("vault_password") or body.get("vault_password_file")):
+                raise ApiError(400, "vars/vault.yml is encrypted — give the vault password so the saved "
+                                    "sudo password can be read")
+        else:
+            data = yaml.safe_load(text) or {}
+            if not data.get("vault_become_password"):
+                raise ApiError(400, "vault_become_password is not set — add it under Credentials, or type "
+                                    "the sudo password for this run")
+        args += ["-e", "@" + vault, "-e", json.dumps(BECOME_VAR_REF)]
+    if body.get("become_password"):
+        d = jm.secret_dir()
+        f = os.path.join(d, "become.json")
+        fd = os.open(f, os.O_WRONLY | os.O_CREAT, 0o600)
+        with os.fdopen(fd, "w") as fh:
+            json.dump({"ansible_become_password": body["become_password"]}, fh)
+        cleanup.append(d)
+        args += ["-e", "@" + f]   # last -e wins: a typed password overrides the saved one
+    return args
+
+
+# ===========================================================================
 # SSH key bootstrap (Static Hosts -> "Copy SSH key to hosts")
 # ===========================================================================
 def ssh_dir():
@@ -1070,6 +1113,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if not os.path.isfile(vpf):
                     raise ApiError(400, "vault password file %s not found" % vpf)
                 argv += ["--vault-password-file", vpf]
+            argv += become_args(repo, body, jm, cleanup)
         job = jm.start(title, argv, env_extra=env, cleanup_paths=cleanup, meta=meta)
         self._send(200, job.to_dict())
 
