@@ -113,7 +113,8 @@ IMDS detection is harmless to leave on for non-Azure hosts.
 
 Continue with the [shared GUI steps](configure-and-deploy.md). Azure specifics:
 
-- **On the Run page, untick `inventory.yml` and tick `inventory.azure.yml`.**
+- **The first time, on the Run page, untick `inventory.yml` and tick `inventory.azure.yml`.**
+  The app remembers that choice for every later run and for OS Upgrade Check.
 - Password from Key Vault instead of the vault file: **Hammerspace API → Azure Key Vault
   URI** + *secret name* + *auth source* (`msi` on CycleCloud). The controller's identity
   needs *Key Vault Secrets User*.

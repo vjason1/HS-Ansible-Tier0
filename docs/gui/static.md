@@ -116,7 +116,7 @@ On-prem specifics for those steps:
 | Drives | **Storage Layout → Storage device type** `nvme` (default). HDD/SSD servers: `hdd` / `ssd` / `scsi`, see [DEPLOYMENT_GUIDE_DARKSITE_HDD.md](../../DEPLOYMENT_GUIDE_DARKSITE_HDD.md). Hardware RAID: *Use software RAID* off + *Hardware RAID devices*. |
 | AZ | AZ subgroups (step 3) + **Volumes & AZ → AZ prefix in volume names** on; for node labels also *AZ mapping for nodes* and *Apply AZ labels via API*. |
 | Firewall | **Firewall** — leave on unless the network team manages host firewalls. The bare-metal playbook variant *Deploy on-prem NVMe (site-onprem-nvme.yml)* skips firewall configuration entirely. |
-| Inventory on the Run page | `inventory.yml` is preselected — nothing to change. |
+| Inventory on the Run page | `inventory.yml` is ticked by default — nothing to change. |
 
 ## Related
 
