@@ -809,15 +809,54 @@ def _differ():
 # Docs
 # ===========================================================================
 def doc_list(repo):
-    docs = []
-    for name in sorted(os.listdir(repo.root)):
-        if name.lower().endswith(".md"):
-            docs.append(name)
+    """Markdown docs shown in the GUI: repo root, docs/**, gui/ and tests READMEs."""
+    docs = [n for n in sorted(os.listdir(repo.root)) if n.lower().endswith(".md")]
+    ddir = repo.path("docs")
+    if os.path.isdir(ddir):
+        for d, dirs, files in os.walk(ddir):
+            dirs.sort()
+            for f in sorted(files):
+                if f.lower().endswith(".md"):
+                    docs.append(os.path.relpath(os.path.join(d, f), repo.root))
     for extra in ("gui/README.md", "tests/integration/README.md"):
         if os.path.isfile(repo.path(extra)):
             docs.append(extra)
-    first = [d for d in ("README.md", "gui/README.md", "VARIABLE_REFERENCE.md") if d in docs]
+    first = [d for d in ("README.md", "docs/gui/configure-and-deploy.md", "docs/gui/static.md",
+                         "docs/gui/oci.md", "docs/gui/aws.md", "docs/gui/azure.md", "docs/gui/gcp.md",
+                         "gui/README.md", "docs/manual/README.md", "VARIABLE_REFERENCE.md",
+                         "docs/os-upgrade-check.md") if d in docs]
     return first + [d for d in docs if d not in first]
+
+
+DOC_GROUPS = [
+    ("Start here", lambda d: d == "README.md"),
+    ("GUI guides", lambda d: d.startswith("docs/gui/") or d == "gui/README.md"),
+    ("Manual (CLI) guides", lambda d: d.startswith("docs/manual/")),
+    ("Deployment & operations", lambda d: d.startswith(("DEPLOYMENT_GUIDE", "AUTOMATION_GUIDE",
+                                                         "RACK_OPERATIONS")) or d == "docs/os-upgrade-check.md"),
+    ("Reference", lambda d: d in ("VARIABLE_REFERENCE.md", "tests/integration/README.md")),
+    ("Project notes", lambda d: True),
+]
+
+
+def doc_entries(repo):
+    """doc_list() with a title (first '# ' heading) and a group for each document."""
+    out = []
+    for path in doc_list(repo):
+        title = path
+        try:
+            with open(repo.path(path), encoding="utf-8") as fh:
+                for line in fh:
+                    if line.startswith("# "):
+                        title = line[2:].strip()
+                        break
+        except OSError:
+            pass
+        group = next(g for g, match in DOC_GROUPS if match(path))
+        out.append({"path": path, "title": title, "group": group})
+    order = [g for g, _ in DOC_GROUPS]
+    out.sort(key=lambda e: order.index(e["group"]))   # stable: keeps doc_list order within a group
+    return out
 
 
 # ===========================================================================
@@ -1209,7 +1248,8 @@ def _doc_get(handler, q):
 
 
 def _docs_list(handler, q):
-    handler._send(200, {"docs": doc_list(handler.app["repo"])})
+    repo = handler.app["repo"]
+    handler._send(200, {"docs": doc_list(repo), "entries": doc_entries(repo)})
 
 
 ROUTES[("GET", "/api/docs")] = _docs_list

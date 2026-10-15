@@ -1402,7 +1402,8 @@ Azure VMs through the portal or `az` CLI if needed.
 
 ## Support
 
-- [README.md](README.md) — full configuration reference, Azure inventory setup in "Configure Inventory → Option E"
+- [Manual (CLI) guide](docs/manual/README.md) — full configuration reference; Azure inventory setup in [docs/manual/inventory-azure.md](docs/manual/inventory-azure.md)
+- [GUI: Azure](docs/gui/azure.md) — the same deployment with the configuration GUI
 - [VARIABLE_REFERENCE.md](VARIABLE_REFERENCE.md) — every variable, including the Azure AZ chain
 - [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) — OCI guide; DI, decommissioning and cloud-agnostic troubleshooting
 - [tests/integration/README.md](tests/integration/README.md) — what the regression tests cover

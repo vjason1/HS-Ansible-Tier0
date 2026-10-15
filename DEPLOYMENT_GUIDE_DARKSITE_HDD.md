@@ -671,7 +671,7 @@ ansible-playbook site.yml --tags "discovery,precheck" --ask-become-pass -K
 ```bash
 # Deploy to all storage servers
 ansible-playbook site.yml
-```
+
 # If using a non-root user with sudo, pass the become password:
 ansible-playbook site.yml --ask-become-pass -K
 ```
@@ -1162,7 +1162,7 @@ mount_base_path: /hammerspace
 ## Support
 
 For issues or questions:
-- Check the main [README.md](README.md) for detailed configuration options
+- Check the [manual (CLI) guide](docs/manual/README.md) for detailed configuration options; the [GUI guide for static hosts](docs/gui/static.md) works offline too
 - Review `vars/main.yml` for all available settings
 - See [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for cloud/OCI deployments
 - Contact Hammerspace support for cluster-related issues

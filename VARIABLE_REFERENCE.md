@@ -510,7 +510,7 @@ placement objectives.
 ## OS Upgrade Snapshot (os_upgrade_snapshot.yml)
 
 Read-only before/after configuration capture around an OS upgrade. Pass with
-`-e`. See README → OS Upgrade Configuration Check.
+`-e`. See [OS Upgrade Configuration Check](docs/os-upgrade-check.md).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
