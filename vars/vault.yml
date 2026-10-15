@@ -14,6 +14,18 @@
 # vault_hammerspace_api_password: "PASSWORD"
 
 # ============================================================================
+# sudo (become) password on the Tier 0 / DI hosts
+# ============================================================================
+# Only needed when the SSH user must type a password for sudo (no NOPASSWD).
+# Fact gathering needs sudo BEFORE the plays load this file, so it must be
+# passed as extra vars, e.g.:
+#   ansible-playbook site.yml -e @vars/vault.yml \
+#     -e 'ansible_become_password={{ vault_become_password }}'
+# or simply prompt for it with -K. The GUI's run pages do this for you
+# ("Use the saved sudo password").
+# vault_become_password: "SUDO_PASSWORD"
+
+# ============================================================================
 # Active Directory Credentials (uncomment if using AD join)
 # ============================================================================
 # vault_ad_username: "admin@corp.example.com"

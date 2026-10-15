@@ -501,6 +501,62 @@ class TestSshKeyPush(unittest.TestCase):
                 tier0_gui.build_ssh_push(repo, dict(base, **bad))
 
 
+# ===========================================================================
+class TestBecomePassword(unittest.TestCase):
+    """Sudo (become) password handed to playbook runs as extra vars."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        os.makedirs(os.path.join(self.tmp, "vars"))
+        self.repo = tier0_gui.Repo(self.tmp)
+        self.jm = tier0_gui.JobManager(self.tmp, os.path.join(self.tmp, "jobs"))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def write_vault(self, text):
+        with open(os.path.join(self.tmp, "vars", "vault.yml"), "w") as fh:
+            fh.write(text)
+
+    def test_typed_password_goes_to_private_temp_file(self):
+        cleanup = []
+        args = tier0_gui.become_args(self.repo, {"become_password": "s3cret"}, self.jm, cleanup)
+        self.assertEqual(args[0], "-e")
+        path = args[1][1:]
+        self.assertNotIn("s3cret", " ".join(args))
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+        self.assertEqual(json.load(open(path)), {"ansible_become_password": "s3cret"})
+        self.assertEqual(cleanup, [os.path.dirname(path)])
+        shutil.rmtree(cleanup[0])
+
+    def test_saved_password(self):
+        with self.assertRaises(tier0_gui.ApiError):        # no vault file
+            tier0_gui.become_args(self.repo, {"use_saved_become": True}, self.jm, [])
+        self.write_vault("vault_hammerspace_api_password: x\n")
+        with self.assertRaises(tier0_gui.ApiError):        # key not set
+            tier0_gui.become_args(self.repo, {"use_saved_become": True}, self.jm, [])
+        self.write_vault("vault_become_password: pw\n")
+        args = tier0_gui.become_args(self.repo, {"use_saved_become": True}, self.jm, [])
+        self.assertEqual(args[1], "@" + os.path.join(self.tmp, "vars", "vault.yml"))
+        self.assertEqual(json.loads(args[3]), {"ansible_become_password": "{{ vault_become_password }}"})
+        cleanup = []
+        both = tier0_gui.become_args(self.repo, {"use_saved_become": True, "become_password": "t"},
+                                     self.jm, cleanup)
+        self.assertTrue(both[-1].startswith("@/"), "a typed password must come last so it wins")
+        shutil.rmtree(cleanup[0])
+
+    def test_encrypted_vault_needs_vault_password(self):
+        self.write_vault("$ANSIBLE_VAULT;1.1;AES256\n6162\n")
+        with self.assertRaises(tier0_gui.ApiError):
+            tier0_gui.become_args(self.repo, {"use_saved_become": True}, self.jm, [])
+        self.assertTrue(tier0_gui.become_args(self.repo, {"use_saved_become": True, "vault_password": "v"},
+                                              self.jm, []))
+
+    def test_schema_has_vault_field(self):
+        keys = [f["key"] for f in schema.SECTIONS_BY_ID["credentials"]["fields"]]
+        self.assertIn("vault_become_password", keys)
+
+
 @unittest.skipUnless(shutil.which("ansible-playbook") and platform.system() == "Linux",
                      "needs ansible-playbook on Linux")
 class TestSnapshotPlaybook(unittest.TestCase):

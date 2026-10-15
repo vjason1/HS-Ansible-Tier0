@@ -691,6 +691,11 @@ VAULT_SECTION = S(
     "ansible-vault before committing or copying it anywhere.",
     [
         F("vault_hammerspace_api_password", "secret", "Hammerspace API password"),
+        F("vault_become_password", "secret", "Sudo password for the hosts",
+          "Only needed when the SSH user must type a password for sudo (no NOPASSWD). Used by "
+          "the GUI's runs when 'Use saved sudo password' is ticked; from a terminal pass "
+          "-e @vars/vault.yml -e 'ansible_become_password={{ vault_become_password }}', or use -K.",
+          optional=True),
         F("vault_ad_username", "str", "AD join username", optional=True),
         F("vault_ad_password", "secret", "AD join password", optional=True),
         F("vault_s3_access_key", "secret", "S3 access key ID", optional=True),

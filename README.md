@@ -1216,6 +1216,9 @@ How saves work:
 - If the file changed on disk since the page loaded, the save is refused.
 - An encrypted `vars/vault.yml` is decrypted only in memory with the password
   you enter, and re-encrypted on save; secret values are masked in the diff.
+- Hosts whose sudo needs a password: type it on the run page (like `-K`), or
+  save it as `vault_become_password` under Credentials and tick **Use the saved
+  sudo password**. See [gui/README.md](gui/README.md#sudo-become-password-for-the-hosts).
 
 The Overview page runs cross-field checks (sample Anvil IP still set,
 thresholds inverted, destructive switches on, DI Kubernetes mode without a
