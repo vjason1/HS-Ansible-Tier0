@@ -27,7 +27,7 @@ set -euo pipefail
 # ---- Configuration (customize these) ----------------------------------------
 
 # Git repo containing the Ansible playbooks (HTTPS — no SSH key required)
-ANSIBLE_REPO_URL="${ANSIBLE_REPO_URL:-https://github.com/BeratUlualan/Ansible-Tier0.git}"
+ANSIBLE_REPO_URL="${ANSIBLE_REPO_URL:-https://github.com/vjason1/HS-Ansible-Tier0.git}"
 ANSIBLE_REPO_BRANCH="${ANSIBLE_REPO_BRANCH:-main}"
 
 # Hammerspace cluster connection

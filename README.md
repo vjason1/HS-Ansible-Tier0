@@ -224,8 +224,8 @@ brew install ansible
 pip install ansible --break-system-packages
 
 # Clone the repo
-git clone https://github.com/hammerspace-solutions/Ansible-Tier0.git
-cd Ansible-Tier0
+git clone https://github.com/vjason1/HS-Ansible-Tier0.git
+cd HS-Ansible-Tier0
 
 # Pull large files (DI RPMs in payload/) — requires git-lfs
 git lfs pull

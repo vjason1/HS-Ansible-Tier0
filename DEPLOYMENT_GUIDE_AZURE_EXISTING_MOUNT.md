@@ -22,7 +22,7 @@ explanation if any is missing.
 |---|---|
 | `/nvme` is a real mountpoint | `findmnt -n -o TARGET,SOURCE /nvme` → `/nvme  /dev/md0` |
 | The scheduler can reach the Anvil | `curl -sk -o /dev/null -w '%{http_code}\n' -u admin:… https://<anvil>:8443/mgmt/v1.2/rest/cntl` → `200` |
-| Repo is current | `git -C ~/Ansible-Tier0 log --oneline -1` |
+| Repo is current | `git -C ~/HS-Ansible-Tier0 log --oneline -1` |
 
 If `/nvme` is not a mountpoint the run is **refused by design** — exporting a
 plain directory would hand clients space on the OS disk instead of the array.
@@ -141,7 +141,7 @@ Inventory names are **Azure resource names**, not the hostnames you see on the
 node.
 
 ```bash
-cd ~/Ansible-Tier0
+cd ~/HS-Ansible-Tier0
 ansible-inventory -i inventory.azure_rm.yml --graph
 ```
 
@@ -192,7 +192,7 @@ bare `private_ipv4_addresses` yields the whole list as the name. Verify with
 ## 03 — Deploy
 
 ```bash
-cd ~/Ansible-Tier0
+cd ~/HS-Ansible-Tier0
 ./scripts/run.sh playbook site.yml \
   -i inventory.azure_rm.yml \
   --limit 'hb120v3*'
@@ -318,7 +318,7 @@ To bring a node back afterwards, re-run `site.yml`.
 
 | Message | Cause and fix |
 |---|---|
-| `--limit leaves us with no hosts to target` | The name does not exist in the inventory. Run `ansible-inventory --graph` and use the prefix wildcard. Also check you are running from **inside** `~/Ansible-Tier0` — outside it, neither the inventory path nor `ansible.cfg` resolves. |
+| `--limit leaves us with no hosts to target` | The name does not exist in the inventory. Run `ansible-inventory --graph` and use the prefix wildcard. Also check you are running from **inside** `~/HS-Ansible-Tier0` — outside it, neither the inventory path nor `ansible.cfg` resolves. |
 | `Discovery produced 0 RAID arrays` | Discovery ran, which means `existing_mount_paths` is not set. The message prints what it found on each path and names the most likely cause. |
 | `... is not a mountpoint` | `/nvme` is not mounted. Mount the array (and add it to `/etc/fstab`) before deploying. |
 | `'vault_hammerspace_api_password' is undefined` | The key is still commented out in `vars/vault.yml`. The error names `vars/main.yml`, but that file only holds the reference — it is not the problem. |

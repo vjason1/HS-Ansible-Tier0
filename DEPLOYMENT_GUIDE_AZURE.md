@@ -92,7 +92,7 @@ sudo dnf install -y ansible python3-pip
 ### 2.2 Clone the Repository
 
 ```bash
-git clone <repository-url> ansible-tier0
+git clone https://github.com/vjason1/HS-Ansible-Tier0.git ansible-tier0
 cd ansible-tier0
 
 # Pull large files (DI RPMs in payload/) — requires git-lfs

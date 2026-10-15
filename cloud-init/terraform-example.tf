@@ -64,7 +64,7 @@ variable "deploy_di" {
 variable "ansible_repo_url" {
   description = "Git repo URL for Ansible-Tier0"
   type        = string
-  default     = "https://github.com/BeratUlualan/Ansible-Tier0.git"
+  default     = "https://github.com/vjason1/HS-Ansible-Tier0.git"
 }
 
 variable "instance_count" {
