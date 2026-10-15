@@ -441,6 +441,66 @@ class TestServer(unittest.TestCase):
 
 
 # ===========================================================================
+# ===========================================================================
+import push_ssh_key  # noqa: E402
+
+
+class TestSshKeyPush(unittest.TestCase):
+    """scripts/push_ssh_key.py + the GUI's ssh_key_push job builder."""
+
+    def test_target_parsing_and_rejection(self):
+        t = push_ssh_key.Target("node1=10.0.0.1:2222")
+        self.assertEqual((t.name, t.host, t.port), ("node1", "10.0.0.1", 2222))
+        self.assertEqual(push_ssh_key.Target("[fe80::1]:22").host, "fe80::1")
+        self.assertEqual(push_ssh_key.Target("host.example.com").port, 22)
+        for bad in ("-oProxyCommand=x", "a b", "h:99999", "h:abc", "x=;rm", "-h=1.2.3.4"):
+            with self.assertRaises(ValueError, msg=bad):
+                push_ssh_key.Target(bad)
+
+    def test_refuses_private_key_and_missing_password(self):
+        tmp = tempfile.mkdtemp()
+        try:
+            priv = os.path.join(tmp, "id")
+            with open(priv, "w") as fh:
+                fh.write("-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----\n")
+            env = dict(os.environ, TIER0_SSH_PASSWORD="x")
+            r = subprocess.run([sys.executable, os.path.join(REPO, "scripts", "push_ssh_key.py"),
+                                "--user", "u", "--pubkey", priv, "--target", "127.0.0.1"],
+                               env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if shutil.which("ssh"):
+                self.assertEqual(r.returncode, 2)
+                self.assertIn(b"never send a private key", r.stderr)
+            env.pop("TIER0_SSH_PASSWORD")
+            r = subprocess.run([sys.executable, os.path.join(REPO, "scripts", "push_ssh_key.py"),
+                                "--user", "u", "--pubkey", priv, "--target", "127.0.0.1"],
+                               env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.assertEqual(r.returncode, 2)
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_remote_script_only_appends(self):
+        s = push_ssh_key.REMOTE_SCRIPT
+        self.assertIn("grep -qxF", s)          # idempotent: exact-line check before append
+        self.assertIn(">> ", s)                # append, never overwrite
+        self.assertNotIn("sudo", s)
+        self.assertNotRegex(s, r"(^|[^>])> *\"\$HOME/.ssh/authorized_keys")
+
+    def test_gui_job_builder(self):
+        repo = tier0_gui.Repo(REPO)
+        base = {"user": "ubuntu", "password": "pw", "generate": True,
+                "targets": [{"name": "n1", "host": "10.0.0.1", "port": 22}]}
+        argv, env, title = tier0_gui.build_ssh_push(repo, dict(base))
+        self.assertEqual(env, {"TIER0_SSH_PASSWORD": "pw"})
+        self.assertNotIn("pw", argv, "the password must never be on the command line")
+        self.assertIn("--generate", argv)
+        self.assertEqual(argv[argv.index("--target") + 1], "n1=10.0.0.1:22")
+        for bad in ({"user": ""}, {"user": "-oX"}, {"password": ""}, {"targets": []},
+                    {"targets": [{"name": "n", "host": "-oProxyCommand=x"}]},
+                    {"generate": False, "pubkey": "/etc/shadow"}):
+            with self.assertRaises(tier0_gui.ApiError, msg=bad):
+                tier0_gui.build_ssh_push(repo, dict(base, **bad))
+
+
 @unittest.skipUnless(shutil.which("ansible-playbook") and platform.system() == "Linux",
                      "needs ansible-playbook on Linux")
 class TestSnapshotPlaybook(unittest.TestCase):

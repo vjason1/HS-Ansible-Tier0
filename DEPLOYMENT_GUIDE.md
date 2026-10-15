@@ -1242,6 +1242,17 @@ oci compute instance list --compartment-id <ocid> --query "data[].shape" --outpu
 ssh -i /path/to/key ubuntu@<instance-ip>
 ```
 
+If the hosts were never given this controller's key but you know a user and
+password for them, authorize the controller's own key instead of copying a
+private key file around — GUI: **Static Hosts → Copy SSH key to hosts**, or:
+```bash
+read -rs TIER0_SSH_PASSWORD && export TIER0_SSH_PASSWORD
+python3 scripts/push_ssh_key.py --user ubuntu --pubkey ~/.ssh/id_ed25519.pub \
+  --target <instance-ip> [--target <instance-ip> ...]
+```
+Then set `ansible_ssh_private_key_file` (and `ansible_user`) in the inventory to
+that key.
+
 **Problem:** `Connection timed out`
 ```bash
 # Check security lists allow SSH (port 22)
