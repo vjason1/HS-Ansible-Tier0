@@ -38,7 +38,7 @@ variable "deploy_mode" {
 variable "repo_url" {
   description = "Ansible-Tier0 git repo URL"
   type        = string
-  default     = "https://github.com/BeratUlualan/Ansible-Tier0.git"
+  default     = "https://github.com/vjason1/HS-Ansible-Tier0.git"
 }
 
 variable "repo_branch" {

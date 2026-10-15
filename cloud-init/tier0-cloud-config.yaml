@@ -27,7 +27,7 @@ write_files:
       # Customize these for your environment
 
       # Git repo (HTTPS — no SSH key needed)
-      ANSIBLE_REPO_URL="https://github.com/BeratUlualan/Ansible-Tier0.git"
+      ANSIBLE_REPO_URL="https://github.com/vjason1/HS-Ansible-Tier0.git"
       ANSIBLE_REPO_BRANCH="main"
 
       # Hammerspace cluster
@@ -50,7 +50,7 @@ runcmd:
     export DEPLOY_DI DI_DEPLOYMENT_TYPE DI_IMAGE_SOURCE
 
     # Download and run the bootstrap script from the repo
-    curl -fsSL "https://raw.githubusercontent.com/BeratUlualan/Ansible-Tier0/${ANSIBLE_REPO_BRANCH}/cloud-init/tier0-bootstrap.sh" \
+    curl -fsSL "https://raw.githubusercontent.com/vjason1/HS-Ansible-Tier0/${ANSIBLE_REPO_BRANCH}/cloud-init/tier0-bootstrap.sh" \
       -o /tmp/tier0-bootstrap.sh
     chmod +x /tmp/tier0-bootstrap.sh
     /tmp/tier0-bootstrap.sh

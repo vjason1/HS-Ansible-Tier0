@@ -31,7 +31,7 @@ python3 gui/tier0_gui.py
 
 ```
 Tier 0 Configuration GUI 1.0.0
-  repository : /home/ubuntu/Ansible-Tier0
+  repository : /home/ubuntu/HS-Ansible-Tier0
   open       : http://127.0.0.1:8765/#token=Jx3...
   remote use : ssh -L 8765:127.0.0.1:8765 <user>@controller   then open the URL above
   stop       : Ctrl-C

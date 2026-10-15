@@ -123,8 +123,8 @@ Total time: ~10-15 minutes from instance launch to fully provisioned.
 
 ```bash
 # Clone the repo
-git clone https://github.com/hammerspace-solutions/Ansible-Tier0.git
-cd Ansible-Tier0
+git clone https://github.com/vjason1/HS-Ansible-Tier0.git
+cd HS-Ansible-Tier0
 
 # Pull large files (DI RPMs in payload/) — requires git-lfs
 # Install git-lfs: brew install git-lfs (macOS) or apt install git-lfs (Linux)
@@ -217,7 +217,7 @@ hs_host         = "10.0.10.15"                       # Anvil management IP
 # Optional
 shape_filter    = "BM.GPU.GB200-v3.4"               # Only deploy on this shape
 deploy_mode     = "both"                              # tier0, di, or both
-repo_url        = "https://github.com/YourOrg/Ansible-Tier0.git"
+repo_url        = "https://github.com/vjason1/HS-Ansible-Tier0.git"
 repo_branch     = "main"
 ```
 

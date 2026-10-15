@@ -280,7 +280,7 @@ class OCIRunCommandDeployer:
             script = bootstrap_path.read_text()
             # Replace defaults with actual config
             replacements = {
-                'ANSIBLE_REPO_URL="${ANSIBLE_REPO_URL:-https://github.com/BeratUlualan/Ansible-Tier0.git}"':
+                'ANSIBLE_REPO_URL="${ANSIBLE_REPO_URL:-https://github.com/vjason1/HS-Ansible-Tier0.git}"':
                     f'ANSIBLE_REPO_URL="${{ANSIBLE_REPO_URL:-{config["repo_url"]}}}"',
                 'ANSIBLE_REPO_BRANCH="${ANSIBLE_REPO_BRANCH:-main}"':
                     f'ANSIBLE_REPO_BRANCH="${{ANSIBLE_REPO_BRANCH:-{config["repo_branch"]}}}"',
@@ -595,7 +595,7 @@ Examples:
     parser.add_argument('--vault-secret-id', help='OCI Vault secret OCID for Hammerspace password')
 
     # Repo
-    parser.add_argument('--repo-url', default='https://github.com/BeratUlualan/Ansible-Tier0.git',
+    parser.add_argument('--repo-url', default='https://github.com/vjason1/HS-Ansible-Tier0.git',
                         help='Git repo URL')
     parser.add_argument('--repo-branch', default='main', help='Git branch (default: main)')
 

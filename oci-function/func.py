@@ -43,7 +43,7 @@ def get_config():
         "vault_secret_id": os.environ.get("VAULT_SECRET_ID", ""),
         "shape_filter": os.environ.get("SHAPE_FILTER", ""),
         "deploy_mode": os.environ.get("DEPLOY_MODE", "both"),
-        "repo_url": os.environ.get("REPO_URL", "https://github.com/BeratUlualan/Ansible-Tier0.git"),
+        "repo_url": os.environ.get("REPO_URL", "https://github.com/vjason1/HS-Ansible-Tier0.git"),
         "repo_branch": os.environ.get("REPO_BRANCH", "main"),
         "hs_host": os.environ.get("HS_HOST", "10.0.10.15"),
         "hs_user": os.environ.get("HS_USER", "admin"),

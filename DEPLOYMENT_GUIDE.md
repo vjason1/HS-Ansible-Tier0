@@ -85,7 +85,7 @@ pip3 install oci
 ### 2.3 Clone the Repository
 
 ```bash
-git clone <repository-url> ansible-tier0
+git clone https://github.com/vjason1/HS-Ansible-Tier0.git ansible-tier0
 cd ansible-tier0
 
 # Pull large files (DI RPMs in payload/) — requires git-lfs
@@ -1160,7 +1160,7 @@ fatal: [inst-X]: FAILED!
 - `_md_member_disks` — informational. NOT excluded. `raid_setup` finds the existing `/dev/mdN`, skips `mdadm --create`, and remaps `mount_points[*].device` to the actual device.
 - `_lvm_pv_disks` — informational.
 
-Pull the fix (`Solutions/Ansible-Tier0` ≥ `224f49d`) and re-run. The role will log:
+Pull the fix (commit `224f49d` or later) and re-run. The role will log:
 ```
 Planned array 'md0' is already assembled as /dev/md127 — skipping mdadm --create.
 ```
