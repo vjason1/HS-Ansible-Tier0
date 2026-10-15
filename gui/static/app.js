@@ -279,7 +279,7 @@ async function pageOverview(view) {
   page.append(h('div', { class: 'facts cols3' },
     fact(o.git.branch ? o.git.branch + (o.git.dirty ? ' *' : '') : '—', 'Git branch' + (o.git.commit ? ' @ ' + o.git.commit : '')),
     fact(o.ansible ? o.ansible.replace(/^ansible(-playbook)? \[?core ?/, '').replace(/\]$/, '') : 'not installed', 'Ansible core'),
-    fact(S.meta.inventories.includes('inventory.yml') ? 'inventory.yml' : (o.ansible_cfg_inventory || '—'), 'Default inventory for runs in this app'),
+    fact((await defaultInventory()).join(', ') || '—', (S.meta.last_inventory || []).length ? 'Inventory for runs (your last selection)' : 'Inventory for runs in this app'),
     fact(String(counts.storage_servers || 0), 'Storage servers in inventory.yml'),
     fact(String(counts.di_nodes || 0), 'DI nodes in inventory.yml'),
     fact(o.vault, 'vars/vault.yml'),
@@ -953,15 +953,29 @@ const RUN_PRESETS = {
   precheck: { playbook: 'site.yml', tags: ['discovery', 'precheck'], check: true },
 };
 
-// The app's runs default to the static inventory.yml (on-prem / standalone use).
-// ansible.cfg's own default is only used when inventory.yml does not exist.
+// Inventory preselected on Run Playbooks / OS Upgrade Check:
+//   1. the last selection made on either page (remembered server-side, so it
+//      survives reloads, other browsers and other machines),
+//   2. otherwise inventory.yml,
+//   3. otherwise ansible.cfg's default inventory.
 async function defaultInventory() {
+  const remembered = (S.meta.last_inventory || []).filter((f) => S.meta.inventories.includes(f));
+  if (remembered.length) return remembered;
   if (S.meta.inventories.includes('inventory.yml')) return ['inventory.yml'];
   try {
     const st = await loadSection('ansible-cfg');
     const v = st.data.values['defaults.inventory'];
     return v && v.state === 'set' ? String(v.value).split(',').map((s) => s.trim()).filter(Boolean) : [];
   } catch (e) { return []; }
+}
+
+// Save the inventory ticks whenever they change.
+function rememberInventory(invBox) {
+  invBox.addEventListener('change', async () => {
+    const sel = [...invBox.querySelectorAll('input:checked')].map((x) => x.value);
+    S.meta.last_inventory = sel;
+    try { await api('/api/state', { body: { last_inventory: sel } }); } catch (e) { /* preference only */ }
+  });
 }
 
 // Credentials for a playbook run: Ansible Vault password + sudo (become) password.
@@ -1075,6 +1089,7 @@ async function pageRun(view, preset) {
   [limit, extraText].forEach((x) => x.addEventListener('input', drawCmd));
   [check, diff, verb].forEach((x) => x.addEventListener('change', drawCmd));
   invBox.addEventListener('change', drawCmd);
+  rememberInventory(invBox);
   page.addEventListener('input', drawCmd);   // vault / sudo fields etc.
   page.addEventListener('change', drawCmd);
 
@@ -1245,6 +1260,7 @@ async function pageUpgrade(view, runName, host) {
   const invDefault = await defaultInventory();
   const invBox = h('div', { class: 'tagpick' });
   S.meta.inventories.forEach((f) => invBox.append(h('label', {}, h('input', { type: 'checkbox', value: f, checked: invDefault.includes(f) }), f)));
+  rememberInventory(invBox);
   const vault = vaultControls();
   page.append(h('div', { class: 'form-grid' },
     h('div', {}, h('label', { for: 'run-name', text: 'Run name (one per maintenance window)' }), runIn, dl),

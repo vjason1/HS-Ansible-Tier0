@@ -434,6 +434,23 @@ class TestServer(unittest.TestCase):
         issues = tier0_gui.validate(self.repo)
         self.assertTrue(all({"level", "area", "message"} <= set(i) for i in issues))
 
+    def test_remembers_last_inventory(self):
+        st, meta = self.req("GET", "/api/meta")
+        self.assertEqual(meta["last_inventory"], [])
+        st, _ = self.req("POST", "/api/state", {"last_inventory": ["inventory.oci.yml"]})
+        self.assertEqual(st, 200)
+        self.assertEqual(self.req("GET", "/api/meta")[1]["last_inventory"], ["inventory.oci.yml"])
+        for bad in (["../../etc/passwd"], ["nope.yml"], "inventory.yml"):
+            self.assertEqual(self.req("POST", "/api/state", {"last_inventory": bad})[0], 400, bad)
+        # a remembered file that disappears is dropped, not offered
+        oci = os.path.join(self.repo_dir, "inventory.oci.yml")
+        os.rename(oci, oci + ".bak")
+        try:
+            self.assertEqual(self.req("GET", "/api/meta")[1]["last_inventory"], [])
+        finally:
+            os.rename(oci + ".bak", oci)
+        self.req("POST", "/api/state", {"last_inventory": []})
+
     def test_job_rejects_unconfirmed_destructive(self):
         st, d = self.req("POST", "/api/jobs", {"kind": "playbook", "playbook": "site.yml"})
         self.assertEqual(st, 412)

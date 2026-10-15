@@ -574,9 +574,12 @@ def validate(repo):
         for part in [p.strip() for p in inv.split(",") if p.strip()]:
             if not os.path.exists(repo.path(part)):
                 add("error", "Ansible", "ansible.cfg inventory %s does not exist." % part, "ansible-cfg")
-        if inv.strip() and inv.strip() != "inventory.yml" and os.path.exists(repo.path("inventory.yml")):
-            add("info", "Ansible", "This app runs playbooks with inventory.yml by default; ansible.cfg "
-                "defaults to %s, which is what command-line runs without -i use." % inv.strip(),
+        app_inv = remembered_inventory(repo) or (["inventory.yml"] if os.path.exists(repo.path("inventory.yml")) else [])
+        cfg_inv = [x.strip() for x in inv.split(",") if x.strip()]
+        if app_inv and cfg_inv and app_inv != cfg_inv:
+            add("info", "Ansible", "This app's runs use %s%s; ansible.cfg defaults to %s, which is what "
+                "command-line runs without -i use." % (", ".join(app_inv),
+                " (your last selection)" if remembered_inventory(repo) else "", ", ".join(cfg_inv)),
                 "ansible-cfg")
     except ApiError:
         add("warning", "Ansible", "ansible.cfg not found.", "ansible-cfg")
@@ -794,6 +797,48 @@ def build_ssh_push(repo, body):
     return argv, {"TIER0_SSH_PASSWORD": body["password"]}, "Copy SSH key to %d host(s) as %s" % (len(specs), user)
 
 
+# ===========================================================================
+# Remembered UI choices (.gui-state.json, gitignored)
+# ===========================================================================
+# Kept on the server, not in the browser, so the choice follows the operator
+# across browsers, machines and SSH tunnels. Only UI preferences live here —
+# never configuration or secrets.
+STATE_FILE = ".gui-state.json"
+
+
+def load_state(repo):
+    try:
+        with open(repo.path(STATE_FILE)) as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def remembered_inventory(repo):
+    """Last inventory selection, dropping files that no longer exist."""
+    files = set(repo.inventory_files())
+    inv = [i for i in load_state(repo).get("last_inventory") or [] if i in files]
+    return inv
+
+
+def _state_post(handler, q):
+    repo = handler.app["repo"]
+    body = handler._body()
+    state = load_state(repo)
+    if "last_inventory" in body:
+        inv = body["last_inventory"]
+        if not isinstance(inv, list) or any(i not in repo.inventory_files() for i in inv):
+            raise ApiError(400, "unknown inventory file")
+        state["last_inventory"] = inv
+    path = repo.path(STATE_FILE)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(state, fh, indent=2)
+    os.replace(tmp, path)
+    handler._send(200, {"ok": True, "state": state})
+
+
 def _ssh_keys(handler, q):
     handler._send(200, {"keys": list_ssh_keys(), "ssh_dir": ssh_dir(),
                         "ssh_client": bool(shutil.which("ssh"))})
@@ -961,6 +1006,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self._send(200, {
             "version": VERSION, "repo": repo.root, "read_only": repo.read_only,
             "git": repo.git_info(),
+            "last_inventory": remembered_inventory(repo),
             "menus": schema.MENUS, "sections": schema.SECTIONS_BY_ID,
             "playbooks": catalog.PLAYBOOKS, "utilities": catalog.UTILITIES,
             "inventories": repo.inventory_files(), "editable_files": schema.EDITABLE_FILES,
@@ -1254,6 +1300,7 @@ def _docs_list(handler, q):
 
 ROUTES[("GET", "/api/docs")] = _docs_list
 ROUTES[("GET", "/api/ssh/keys")] = _ssh_keys
+ROUTES[("POST", "/api/state")] = _state_post
 ROUTES[("GET", "/api/doc")] = _doc_get
 
 

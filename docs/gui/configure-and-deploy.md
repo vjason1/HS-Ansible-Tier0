@@ -88,8 +88,9 @@ items: Anvil IP still the sample, vault password not set, destructive switch on.
 **Operate → Run Playbooks**, or the Overview's **Dry-run discovery and pre-checks**:
 
 1. Playbook **Deploy Tier 0 (site.yml)**.
-2. **Inventory (-i)**: the app preselects `inventory.yml`. **For a cloud
-   deployment untick it and tick your cloud inventory** (`inventory.oci.yml`, ...).
+2. **Inventory (-i)**: the first time, `inventory.yml` is ticked. **For a cloud
+   deployment untick it and tick your cloud inventory** (`inventory.oci.yml`, ...) —
+   the app remembers your selection from then on, on this page and on OS Upgrade Check.
 3. Tags `discovery` + `precheck`, **Check mode** on (default).
 4. *Vault password* if the vault is encrypted (prefilled once you unlocked
    Credentials). *Sudo password on the hosts* only if sudo asks for one, or tick

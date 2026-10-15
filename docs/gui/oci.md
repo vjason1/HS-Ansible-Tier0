@@ -95,8 +95,9 @@ fabric procedure is §9 of [DEPLOYMENT_GUIDE.md](../../DEPLOYMENT_GUIDE.md).
 
 Continue with the [shared GUI steps](configure-and-deploy.md). OCI specifics:
 
-- **On the Run page, untick `inventory.yml` and tick `inventory.oci.yml`.** (Or make it
-  the command-line default too: **Controller → Ansible Settings → Default inventory**.)
+- **The first time, on the Run page, untick `inventory.yml` and tick `inventory.oci.yml`.**
+  The app remembers that choice for every later run and for OS Upgrade Check. To make
+  it the command-line default too: **Controller → Ansible Settings → Default inventory**.
 - Adding instances to a running cluster: run **Preflight: find new instances** first,
   then deploy with *Limit* `@.new_instances_limit` so registered nodes are skipped.
 - Many nodes at once: **API Throttling & Timeouts → Serial batch size** `2`.
