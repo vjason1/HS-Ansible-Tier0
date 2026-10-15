@@ -108,7 +108,7 @@ Options:
 |----------|---------|
 | `site.yml` | Full provisioning (OCI / general) |
 | `site-onprem-nvme.yml` | On-prem NVMe provisioning (no firewall) |
-| `os_upgrade_snapshot.yml` | Read-only before/after configuration snapshot + diff for OS upgrades and patching (see [README → OS Upgrade Configuration Check](README.md#os-upgrade-configuration-check)) |
+| `os_upgrade_snapshot.yml` | Read-only before/after configuration snapshot + diff for OS upgrades and patching (see [OS Upgrade Configuration Check](docs/os-upgrade-check.md)) |
 
 All of the above, plus the two scripts, can also be driven from the
 configuration GUI (`python3 gui/tier0_gui.py` → **Operate** menus). See

@@ -377,6 +377,13 @@ async function pageForm(view, id) {
         Object.entries(sec.show_if).map(([k, v]) => k + ' = ' + v).join(', ') + '. They are shown so you can prepare them.' })));
     }
   }
+  if (/^inventory\.[a-z]+\.yml$/.test(sec.file)) {
+    // Cloud dynamic inventories: confirm what the filters select before deploying,
+    // and reach the keys the form doesn't cover (compose: ansible_user, AZ prefix ...).
+    page.append(h('div', { class: 'btn-row', style: 'margin-bottom:14px' },
+      h('button', { class: 'btn', type: 'button', text: 'Show resolved inventory', onclick: () => startJob({ kind: 'inventory_graph', inventory: sec.file }) }),
+      h('a', { class: 'btn quiet', href: '#/files/' + sec.file, text: 'Edit the whole file (compose, keyed_groups, ...)' })));
+  }
   const fieldsBox = h('div', { class: 'fields' });
   page.append(fieldsBox);
   view.append(page);
@@ -1385,7 +1392,24 @@ function renderDiffReport(el, res) {
 }
 
 // ------------------------------------------------------------------ docs
-function renderMarkdown(md) {
+// Resolve a link in doc `base` (e.g. docs/gui/oci.md) to a repo path.
+function resolveDocPath(base, href) {
+  const parts = base.split('/').slice(0, -1);
+  for (const seg of href.split('/')) {
+    if (seg === '..') parts.pop(); else if (seg && seg !== '.') parts.push(seg);
+  }
+  return parts.join('/');
+}
+function headingSlug(t) {
+  return t.trim().toLowerCase().replace(/[`*_]/g, '').replace(/[^\w\- ]/g, '').replace(/ /g, '-');
+}
+function scrollToHeading(id) {
+  const el = id && document.getElementById('h-' + id);
+  if (el) el.scrollIntoView({ block: 'start' });
+}
+
+function renderMarkdown(md, docName) {
+  docName = docName || 'README.md';
   const root = h('div', { class: 'doc' });
   const lines = md.replace(/\r/g, '').split('\n');
   let i = 0;
@@ -1402,7 +1426,12 @@ function renderMarkdown(md) {
         const mm = tok.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
         const href = mm[2];
         if (/^https?:\/\//.test(href)) frag.append(h('a', { href, target: '_blank', rel: 'noopener noreferrer', text: mm[1] }));
-        else if (/\.md(#.*)?$/.test(href)) frag.append(h('a', { href: '#/docs/' + href.replace(/#.*$/, ''), text: mm[1] }));
+        else if (href.startsWith('#')) frag.append(h('a', { href: '#/docs/' + docName, text: mm[1], onclick: (ev) => { ev.preventDefault(); scrollToHeading(href.slice(1)); } }));
+        else if (/\.md(#.*)?$/.test(href)) {
+          const target = resolveDocPath(docName, href.replace(/#.*$/, ''));
+          const fragId = (href.match(/#(.*)$/) || [])[1];
+          frag.append(h('a', { href: '#/docs/' + target, text: mm[1], onclick: () => { S.docFrag = fragId; } }));
+        }
         else frag.append(h('span', { text: mm[1] }));
       }
       last = m.index + tok.length;
@@ -1418,7 +1447,7 @@ function renderMarkdown(md) {
       i++; root.append(h('pre', {}, h('code', { text: buf.join('\n') }))); continue;
     }
     const hm = line.match(/^(#{1,6})\s+(.*)$/);
-    if (hm) { root.append(h('h' + Math.min(hm[1].length, 4), {}, inline(hm[2]))); i++; continue; }
+    if (hm) { root.append(h('h' + Math.min(hm[1].length, 4), { id: 'h-' + headingSlug(hm[2]) }, inline(hm[2]))); i++; continue; }
     if (/^\|/.test(line)) {
       const rows = [];
       while (i < lines.length && /^\|/.test(lines[i])) rows.push(lines[i++]);
@@ -1455,17 +1484,25 @@ function renderMarkdown(md) {
 }
 
 async function pageDocs(view, name) {
-  const list = (await api('/api/docs')).docs;
-  name = name || 'gui/README.md';
+  const resp = await api('/api/docs');
+  const list = resp.docs;
+  name = name || 'README.md';
   if (!list.includes(name)) name = list[0];
   const page = h('div', { class: 'page wide' });
   page.append(pageHead('Documentation', 'The repository\'s own guides, rendered here so they are available on air-gapped controllers.'));
-  const ul = h('ul', { class: 'doc-list' }, list.map((d) => h('li', {}, h('button', { type: 'button', 'aria-current': d === name ? 'true' : 'false', text: d, onclick: () => { location.hash = '#/docs/' + d; } }))));
+  const ul = h('div', { class: 'doc-list' });
+  let group = '';
+  for (const e of resp.entries) {
+    if (e.group !== group) { group = e.group; ul.append(h('h3', { text: group })); }
+    ul.append(h('button', { type: 'button', 'aria-current': e.path === name ? 'true' : 'false', title: e.path,
+      onclick: () => { location.hash = '#/docs/' + e.path; } }, h('span', { text: e.title }), h('small', { text: e.path })));
+  }
   const doc = h('div');
   page.append(h('div', { class: 'doc-layout' }, h('nav', { 'aria-label': 'Documents' }, ul), doc));
   view.append(page);
   const d = await api('/api/doc?name=' + encodeURIComponent(name));
-  doc.append(renderMarkdown(d.text));
+  doc.append(renderMarkdown(d.text, name));
+  if (S.docFrag) { const f = S.docFrag; S.docFrag = null; setTimeout(() => scrollToHeading(f), 50); }
 }
 
 boot();

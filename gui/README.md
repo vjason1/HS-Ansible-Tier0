@@ -278,7 +278,7 @@ command line.
 
 ## OS Upgrade Check
 
-A guided page for [`os_upgrade_snapshot.yml`](../README.md#os-upgrade-configuration-check):
+A guided page for [`os_upgrade_snapshot.yml`](../docs/os-upgrade-check.md):
 
 1. **Capture the baseline** before touching the OS (`pre`).
 2. **Upgrade and reboot** with your normal process.

@@ -45,7 +45,7 @@ STORAGE_LAYOUT = S(
     "How Tier 0 finds and lays out local storage. Pick ONE mode: dynamic discovery "
     "(default — NVMe found automatically, grouped by NUMA node, boot drive excluded), "
     "manual RAID arrays, hardware RAID devices, or existing-mount mode (filesystems you "
-    "already built). Docs: README → Dynamic NVMe Discovery.",
+    "already built). Docs: manual guide → Dynamic NVMe Discovery.",
     [
         F("use_dynamic_discovery", "bool", "Dynamic drive discovery",
           "Auto-discover drives, exclude the boot device, group by NUMA node and build one "
@@ -102,7 +102,7 @@ STORAGE_LAYOUT = S(
 RAID_TUNING = S(
     "raid", "RAID Sizing & CPU Tuning",
     "How discovered drives are grouped into arrays, and the CPU-vendor tuning applied to "
-    "them. Docs: README → RAID Array Sizing Options, CPU-Optimized RAID Configuration.",
+    "them. Docs: manual guide → RAID Array Sizing Options, CPU-Optimized RAID Configuration.",
     [
         F("raid_level", "enum", "RAID level", "0 = stripe (Tier 0 default), 1 mirror, 5 parity, "
           "10 stripe+mirror.", options=[0, 1, 5, 10], default=0),
@@ -148,7 +148,7 @@ EXCLUSIONS = S(
     "exclusions", "Device Exclusions",
     "Keep specific drives out of RAID. The boot / OS drive is ALWAYS excluded automatically — "
     "these lists are for anything else (reserved drives, slower models, a second tier). "
-    "Docs: README → NVMe Device Exclusion.",
+    "Docs: manual guide → NVMe Device Exclusion.",
     [
         F("nvme_exclude_devices", "list", "NVMe: by device name", "e.g. nvme0n1", default=[],
           placeholder="nvme0n1"),
@@ -173,7 +173,7 @@ HS_API = S(
     "hs-api", "Hammerspace API",
     "Connection to the Anvil REST API. Set hammerspace_api_host once — hammerspace_nodes, "
     "network_test_targets and the DI cluster IP derive from it. The password itself lives in "
-    "Credentials (vars/vault.yml) or Azure Key Vault. Docs: README → Hammerspace API Integration.",
+    "Credentials (vars/vault.yml) or Azure Key Vault. Docs: manual guide → Hammerspace API Integration.",
     [
         F("hammerspace_api_host", "str", "Anvil management IP / host",
           "Enables registration. The API preflight fails in <30 s if it is unreachable or the "
@@ -211,7 +211,7 @@ HS_API = S(
 VOLUMES_AZ = S(
     "volumes-az", "Volumes & Availability Zones",
     "How each mount becomes a Hammerspace storage volume, and how nodes/volumes get their "
-    "AZ. Docs: README → Volume Settings, Hammerspace Volume AZ Prefix Configuration, "
+    "AZ. Docs: manual guide → Volume Settings, Hammerspace Volume AZ Prefix Configuration, "
     "Availability Zones.",
     [
         F("hammerspace_add_volumes", "bool", "Add volumes automatically", default=True),
@@ -264,7 +264,7 @@ VOLUMES_AZ = S(
 
 GROUPS_SHARES = S(
     "groups-shares", "Volume Groups, Shares & Objectives",
-    "Organize volumes and publish shares. Docs: README → Creating Shares via API; "
+    "Organize volumes and publish shares. Docs: manual guide → Creating Shares via API; "
     "VARIABLE_REFERENCE → Volume Groups / Shares / Share Objectives.",
     [
         F("hammerspace_volume_group", "str", "Join existing volume group",
@@ -355,7 +355,7 @@ CLUSTER = S(
 
 THROTTLE = S(
     "throttle", "API Throttling & Timeouts",
-    "Protect Anvil during large deployments. Docs: README → Anvil Overload Protection.",
+    "Protect Anvil during large deployments. Docs: manual guide → Anvil Overload Protection.",
     [
         F("hammerspace_serial", "int", "Serial batch size",
           "Run hammerspace_integration N nodes at a time; all volumes of a batch finish "
@@ -385,7 +385,7 @@ NFS = S(
     "nfs", "NFS Server & Exports",
     "The /etc/nfs.conf and /etc/exports the playbook writes. Hammerspace nodes and movers "
     "get no_root_squash, clients get root_squash; the 'mp' option prevents exporting an "
-    "empty directory if a filesystem is not mounted. Docs: README → NFS Settings, Export Options.",
+    "empty directory if a filesystem is not mounted. Docs: manual guide → NFS Settings, Export Options.",
     [
         F("nfs_threads", "int", "nfsd threads", "Hammerspace recommends 128.", default=128),
         F("nfs_vers3", "enum", "NFSv3", options=["y", "n"], default="y"),
@@ -465,7 +465,7 @@ FIREWALL = S(
 PROTECTION = S(
     "protection", "Mount Protection",
     "systemd guard services keep each mount busy (umount fails) and a watchdog remounts "
-    "anything that disappears. Docs: README → Mount Point Protection.",
+    "anything that disappears. Docs: manual guide → Mount Point Protection.",
     [
         F("hammerspace_mount_protection", "bool", "Enable mount protection", default=True),
         F("hammerspace_mount_guard_enabled", "bool", "Guard services", default=True,
@@ -481,7 +481,7 @@ PROTECTION = S(
 
 PRECHECK = S(
     "precheck", "Pre-checks",
-    "Validation that runs before anything is changed (--tags precheck). Docs: README → "
+    "Validation that runs before anything is changed (--tags precheck). Docs: manual guide → "
     "Pre-Setup Validation.",
     [
         F("expected_nvme_count", "int", "Expected NVMe count (incl. boot)", "Unset to skip.",
@@ -543,7 +543,7 @@ SAFETY = S(
 DI_DEPLOY = S(
     "di-deploy", "DI: Deployment",
     "Data Instantiator (NFS mover) on the di_nodes group — host RPM, container "
-    "(podman/docker) or Kubernetes DaemonSet. Docs: README → Data Instantiator.",
+    "(podman/docker) or Kubernetes DaemonSet. Docs: manual guide → Data Instantiator.",
     [
         F("deploy_di", "bool", "Deploy DI", "Master switch (or -e deploy_di=true).", default=False),
         F("di_activate", "bool", "Activate", "false = pre-stage only (install, no services, no "

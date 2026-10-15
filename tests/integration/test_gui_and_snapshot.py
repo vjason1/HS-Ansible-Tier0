@@ -557,6 +557,71 @@ class TestBecomePassword(unittest.TestCase):
         self.assertIn("vault_become_password", keys)
 
 
+# ===========================================================================
+class TestDocLinks(unittest.TestCase):
+    """Every relative Markdown link (file and #anchor) in the repo resolves.
+
+    The docs are split across README.md, docs/gui/, docs/manual/ and the guides at
+    the root; this keeps a future move from silently breaking cross-references.
+    """
+    LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
+
+    @staticmethod
+    def slug(h):
+        h = re.sub(r"[`*_]", "", h.strip().lower())
+        return re.sub(r"[^\w\- ]", "", h).replace(" ", "-")
+
+    def anchors(self, path):
+        out, fence = set(), False
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                if line.lstrip().startswith("```"):
+                    fence = not fence
+                m = None if fence else re.match(r"^#{1,6}\s+(.*?)\s*#*\s*$", line)
+                if m:
+                    out.add(self.slug(m.group(1)))
+        return out
+
+    def test_relative_links_resolve(self):
+        broken = []
+        for d, dirs, files in os.walk(REPO):
+            dirs[:] = [x for x in dirs if x not in (".git", "payload", ".gui-backups", ".gui-jobs", "snapshots")]
+            for f in files:
+                if not f.endswith(".md"):
+                    continue
+                p, fence = os.path.join(d, f), False
+                with open(p, encoding="utf-8") as fh:
+                    for n, line in enumerate(fh, 1):
+                        if line.lstrip().startswith("```"):
+                            fence = not fence
+                        if fence:
+                            continue
+                        for t in self.LINK.findall(line):
+                            if re.match(r"^[a-z]+:", t):
+                                continue
+                            path, _, frag = t.partition("#")
+                            target = p if not path else os.path.normpath(os.path.join(d, path))
+                            where = "%s:%d %s" % (os.path.relpath(p, REPO), n, t)
+                            if not os.path.exists(target):
+                                broken.append("missing file  " + where)
+                            elif frag and target.endswith(".md") and frag not in self.anchors(target):
+                                broken.append("missing anchor " + where)
+        self.assertEqual(broken, [], "\n".join(broken))
+
+    def test_code_fences_balanced(self):
+        for d, dirs, files in os.walk(REPO):
+            dirs[:] = [x for x in dirs if x not in (".git", "payload")]
+            for f in (x for x in files if x.endswith(".md")):
+                with open(os.path.join(d, f), encoding="utf-8") as fh:
+                    n = sum(1 for l in fh if l.lstrip().startswith("```"))
+                self.assertEqual(n % 2, 0, "unbalanced ``` fence in " + os.path.relpath(os.path.join(d, f), REPO))
+
+    def test_gui_lists_new_docs(self):
+        docs = tier0_gui.doc_list(tier0_gui.Repo(REPO))
+        for must in ("README.md", "docs/gui/oci.md", "docs/manual/README.md", "docs/os-upgrade-check.md"):
+            self.assertIn(must, docs)
+
+
 @unittest.skipUnless(shutil.which("ansible-playbook") and platform.system() == "Linux",
                      "needs ansible-playbook on Linux")
 class TestSnapshotPlaybook(unittest.TestCase):

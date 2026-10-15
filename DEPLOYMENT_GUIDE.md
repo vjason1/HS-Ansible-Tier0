@@ -6,9 +6,12 @@ Step-by-step guide for deploying Hammerspace Tier 0 storage on Oracle Cloud Infr
 > **Azure has its own end-to-end guide:**
 > [DEPLOYMENT_GUIDE_AZURE.md](DEPLOYMENT_GUIDE_AZURE.md).
 > AWS and GCP follow this guide's flow — only sections 3 (authentication) and 4
-> (inventory) differ. See "Configure Inventory → Option C/D" in
-> [README.md](README.md) for the per-provider setup, then rejoin this guide at
-> section 5 (Configure Variables).
+> (inventory) differ. Use [AWS inventory](docs/manual/inventory-aws.md) or
+> [GCP inventory](docs/manual/inventory-gcp.md) for the per-provider setup, then
+> rejoin this guide at section 5 (Configure Variables).
+>
+> **Prefer the configuration GUI?** See [GUI: OCI](docs/gui/oci.md) — the same
+> deployment done from forms.
 
 ---
 
@@ -1576,6 +1579,6 @@ python3 cleanup_instance_nodes.py \
 ## Support
 
 For issues or questions:
-- Check the main [README.md](README.md) for detailed configuration options
+- Check the [manual (CLI) guide](docs/manual/README.md) for detailed configuration options
 - Review `vars/main.yml` for all available settings
 - Contact Hammerspace support for cluster-related issues
