@@ -161,12 +161,15 @@ Unit tests for `scripts/run.sh`. Pure bash, no Ansible required. Two sections:
 - case-insensitive matching
 - priority ordering when all 4 candidates are present
 
-### ANSIBLE_LOG_PATH default (4 cases)
+### ANSIBLE_LOG_PATH default (7 cases, run against the real `scripts/run.sh`)
 
-- No preset env vars → defaults to `${HOME}/logs/ansible-<timestamp>.log`
+- No preset env vars → `<repo>/logs/ansible-<timestamp>-<cmd>-<label>-<pid>.log`
+- The header line (who / where / command) is written to that log
 - `ANSIBLE_LOG_DIR=/tmp/x` → log path lands under `/tmp/x`
 - User-set `ANSIBLE_LOG_PATH` wins over the default
 - User-set `ANSIBLE_LOG_PATH` wins even when `ANSIBLE_LOG_DIR` is also set
+- Two runs never share a file
+- Password / token values in the arguments are masked in the header
 
 Run directly:
 ```bash
@@ -439,6 +442,10 @@ python3 tests/integration/test_gui_and_snapshot.py
 | `TestServer` | GUI HTTP layer on a temp copy of the config: token required, cross-origin POSTs refused, static path traversal refused, file allow-list enforced, preview → save → backup → stale-hash conflict cycle, invalid enum / internal keys rejected, destructive jobs need confirmation, inventory model round-trips both inventory files, the last inventory selection is remembered server-side (unknown/path-like names refused, deleted files dropped). |
 | `TestSshKeyPush` | `push_ssh_key.py` target parsing rejects option-looking / malformed hosts, names and ports; a private key file or a missing password is refused (exit 2); the remote script only appends (exact-line check, no sudo, no overwrite); the GUI job builder passes the password only via environment and rejects bad users, hosts and key paths. |
 | `TestBecomePassword` | Sudo password for runs: a typed password is written to a 0600 temp file (never on the command line) passed as `-e @file` and registered for cleanup; the saved one adds `-e @vars/vault.yml` plus the `ansible_become_password: "{{ vault_become_password }}"` reference, refuses when the vault or key is missing or the vault is encrypted without a vault password; a typed password is placed last so it wins. |
+| `TestServer` (logs) | `/api/logs` needs the token; an Ansible log is listed with its `run.sh` command header and viewable; traversal, vault, source files and unknown roots are 404 on view and download; invalid retention / URL / initials are 400; settings changes are audited; an upload job naming a non-log file is refused. |
+| `TestUpload` | `hs_upload.py`: secrets masked (become/ssh/API passwords, AWS keys, tokens, Basic auth, `-u user:pass`, `user:pass@` URLs, private keys) while look-alikes stay readable (sysctl `ipfrag_secret_interval`, `bridge-nf-pass-vlan…`, k8s secret names, key-file paths, vault references); `vars/vault.yml` never bundled; folder `<INITIALS>-<CUSTOMER>-tier0_…`; two bundles in the same second don't collide; bad names exit 2; against a local mock intake the request carries the toolkit's exact fields (`payload=prosvcs`, `cluster_id=manual`, `payload_type=prosvcs`, `file`), the bundle is removed after a 2xx and kept after a failure. |
+| `TestLogStore` | The catalog lists only logs and reports; ids resolve only inside the allowed patterns (traversal, absolute paths, symlinks out, vault and other files refused); UTF-8 paging forward and backward reassembles a file of multibyte characters exactly at any chunk size; retention deletes old logs but never reports, the live append files or a running job's log; rotation at 20 MB; `.gui-jobs/` migrates; settings validation. |
+| `TestAnsibleLogging` | `ansible.cfg` sets `log_path = logs/ansible.log`; `logs/README` is tracked so the folder exists; log files are gitignored; `deploy_new_instances.sh` calls `scripts/run.sh`. |
 | `TestDocLinks` | Every relative Markdown link and `#anchor` across the repo resolves (README, `docs/gui/`, `docs/manual/`, guides); every file's ``` fences are balanced; the GUI's Documentation page lists the new docs. |
 | `TestSnapshotPlaybook` | (needs `ansible-playbook`) real run against localhost: `post` without a baseline fails and leaves no directory; `pre` succeeds; a second `pre` refuses to overwrite; `post` writes `post.txt`, `diff.{txt,html,json}` and `SUMMARY.txt`; `diff` rebuilds them. |
 

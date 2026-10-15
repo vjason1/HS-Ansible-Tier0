@@ -126,7 +126,7 @@ echo ""
 # Step 1: Run preflight check
 echo -e "${YELLOW}Step 1: Running preflight check...${NC}"
 cd "$SCRIPT_DIR"
-ansible-playbook preflight_check.yml $INVENTORY
+"$SCRIPT_DIR/scripts/run.sh" playbook preflight_check.yml $INVENTORY
 
 # Read the limit file
 LIMIT_FILE="$SCRIPT_DIR/.new_instances_limit"
@@ -197,7 +197,8 @@ echo -e "${BLUE}  Starting deployment...${NC}"
 echo -e "${BLUE}============================================${NC}"
 
 # Build ansible command
-ANSIBLE_CMD="ansible-playbook site.yml $INVENTORY --limit \"$NEW_INSTANCES\""
+# Through scripts/run.sh: UTF-8 locale + one log file per run in logs/.
+ANSIBLE_CMD="\"$SCRIPT_DIR/scripts/run.sh\" playbook site.yml $INVENTORY --limit \"$NEW_INSTANCES\""
 
 if [[ "$PRECHECK_ONLY" == true ]]; then
     ANSIBLE_CMD="$ANSIBLE_CMD --tags precheck"

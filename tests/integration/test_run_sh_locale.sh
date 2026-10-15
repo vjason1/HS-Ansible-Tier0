@@ -107,52 +107,65 @@ echo
 printf '%s\n' "RUN.SH ANSIBLE_LOG_PATH default tests"
 printf '%s\n' "====================================="
 
-run_log_case() {
-    local name="$1"; shift
-    local preset="$1"; shift
-    local custom_dir="$1"; shift
-    local expected_dir="$1"; shift
+# These cases run the REAL scripts/run.sh (subcommand `raw`, which execs the
+# given command with run.sh's environment), so a regression in run.sh itself is
+# caught — not a copy of its logic.
+RUN_SH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." &> /dev/null && pwd)/scripts/run.sh"
+REPO_LOGS="$(dirname -- "$(dirname -- "${RUN_SH}")")/logs"
 
-    # `[[ ... ]] && export` returns the LHS's exit code when LHS is false,
-    # which under `set -e` aborts the script. Use `if` blocks instead.
-    unset ANSIBLE_LOG_PATH ANSIBLE_LOG_DIR
-    if [[ -n "${preset}" ]];     then export ANSIBLE_LOG_PATH="${preset}";     fi
-    if [[ -n "${custom_dir}" ]]; then export ANSIBLE_LOG_DIR="${custom_dir}"; fi
-
-    if [[ -z "${ANSIBLE_LOG_PATH:-}" ]]; then
-        _log_dir="${ANSIBLE_LOG_DIR:-${HOME}/logs}"
-        export ANSIBLE_LOG_PATH="${_log_dir}/ansible-stub.log"
-    fi
-
-    local got_dir
-    got_dir="$(dirname "${ANSIBLE_LOG_PATH}")"
-
-    if [[ "${got_dir}" == "${expected_dir}" ]]; then
-        passes=$((passes+1))
-        printf '  ✓ %s\n' "${name}"
+check() {   # check <name> <condition-result 0/1> [detail]
+    if [[ "$2" == "0" ]]; then
+        passes=$((passes+1)); printf '  ✓ %s\n' "$1"
     else
-        failures+=("${name}: expected dir '${expected_dir}', got '${got_dir}'")
-        printf '  ✗ %s\n' "${name}"
+        failures+=("$1${3:+: $3}"); printf '  ✗ %s\n' "$1"
     fi
-
-    unset ANSIBLE_LOG_PATH ANSIBLE_LOG_DIR
+}
+log_path_of() {   # env assignments..., prints the ANSIBLE_LOG_PATH run.sh chose
+    # shellcheck disable=SC2016  # expanded by the inner sh, on purpose
+    env -u ANSIBLE_LOG_PATH -u ANSIBLE_LOG_DIR "$@" \
+        bash "${RUN_SH}" raw sh -c 'printf %s "$ANSIBLE_LOG_PATH"' 2>/dev/null
 }
 
-# 1. no preset → default to ~/logs
-run_log_case "no preset → ~/logs/" \
-    "" "" "${HOME}/logs"
+tmp="$(mktemp -d)"
 
-# 2. ANSIBLE_LOG_DIR override → that dir
-run_log_case "ANSIBLE_LOG_DIR=/tmp/x → /tmp/x" \
-    "" "/tmp/x" "/tmp/x"
+# 1. no preset -> <repo>/logs/ansible-<ts>-raw-sh-<pid>.log, header written
+got="$(log_path_of)"
+if [[ "$(dirname -- "${got}")" == "${REPO_LOGS}" && "$(basename -- "${got}")" =~ ^ansible-[0-9]{8}_[0-9]{6}-raw-sh-[0-9]+\.log$ ]]; then rc=0; else rc=1; fi
+check "no preset → <repo>/logs/ansible-<ts>-<label>-<pid>.log" "${rc}" "got ${got}"
+grep -q '^# ===== run.sh ' "${got}" 2>/dev/null
+rc=$?
+check "header line written to the log" "${rc}"
+rm -f "${got}"
 
-# 3. user-set ANSIBLE_LOG_PATH wins over the default
-run_log_case "user-set ANSIBLE_LOG_PATH preserved" \
-    "/some/custom/path.log" "" "/some/custom"
+# 2. ANSIBLE_LOG_DIR override
+got="$(log_path_of ANSIBLE_LOG_DIR="${tmp}/x")"
+if [[ "$(dirname -- "${got}")" == "${tmp}/x" && -f "${got}" ]]; then rc=0; else rc=1; fi
+check "ANSIBLE_LOG_DIR → that dir (created)" "${rc}" "got ${got}"
 
-# 4. user-set ANSIBLE_LOG_PATH wins even when ANSIBLE_LOG_DIR is also set
-run_log_case "ANSIBLE_LOG_PATH overrides ANSIBLE_LOG_DIR" \
-    "/abs/log.log" "/ignored" "/abs"
+# 3. user-set ANSIBLE_LOG_PATH wins
+got="$(log_path_of ANSIBLE_LOG_PATH="${tmp}/custom/path.log")"
+if [[ "${got}" == "${tmp}/custom/path.log" ]]; then rc=0; else rc=1; fi
+check "user-set ANSIBLE_LOG_PATH preserved" "${rc}" "got ${got}"
+
+# 4. ANSIBLE_LOG_PATH wins over ANSIBLE_LOG_DIR
+got="$(log_path_of ANSIBLE_LOG_PATH="${tmp}/abs.log" ANSIBLE_LOG_DIR="${tmp}/ignored")"
+if [[ "${got}" == "${tmp}/abs.log" ]]; then rc=0; else rc=1; fi
+check "ANSIBLE_LOG_PATH overrides ANSIBLE_LOG_DIR" "${rc}" "got ${got}"
+
+# 5. two runs in the same second never share a file (PID in the name)
+a="$(log_path_of ANSIBLE_LOG_DIR="${tmp}/same")"; b="$(log_path_of ANSIBLE_LOG_DIR="${tmp}/same")"
+if [[ "${a}" != "${b}" ]]; then rc=0; else rc=1; fi
+check "concurrent runs get distinct files" "${rc}"
+
+# 6. secrets in arguments are masked in the header
+env -u ANSIBLE_LOG_DIR ANSIBLE_LOG_PATH="${tmp}/mask.log" bash "${RUN_SH}" raw true \
+    -e 'ansible_become_password=Sup3rS3cret' -e '{"vault_password": "V4ult", "keep": "visible"}' \
+    -e 'api_token:T0ken' >/dev/null 2>&1
+! grep -qE 'Sup3rS3cret|V4ult|T0ken' "${tmp}/mask.log" && grep -q 'visible' "${tmp}/mask.log"
+rc=$?
+check "password/token values masked, other values kept" "${rc}" "$(sed -n 2p "${tmp}/mask.log" 2>/dev/null)"
+
+rm -rf "${tmp}"
 
 echo
 echo "================================="

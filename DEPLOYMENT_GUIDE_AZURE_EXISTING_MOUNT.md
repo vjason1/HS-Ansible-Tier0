@@ -198,7 +198,7 @@ cd ~/HS-Ansible-Tier0
   --limit 'hb120v3*'
 ```
 
-`scripts/run.sh` pins the locale and sets a log path under `~/logs`.
+`scripts/run.sh` pins the locale and logs each run to `logs/` in the repository.
 
 | Role | In this mode |
 |---|---|
@@ -325,8 +325,9 @@ To bring a node back afterwards, re-run `site.yml`.
 | `HTTP 401` at the API preflight | Wrong password, or still the `PASSWORD` placeholder. Test the credential with the `curl` in step 00. |
 | `Volume group '…' does not exist` | Deliberate hard stop. Create the group first, or clear `hammerspace_volume_group` to skip membership. |
 
-Every run is logged under `~/logs/` by `scripts/run.sh`. Send that file along
-with the failing task when raising an issue.
+Every run is logged under `logs/` by `scripts/run.sh`. Send that file along
+with the failing task when raising an issue — `python3 scripts/hs_upload.py logs/<file>.log`
+uploads it to Hammerspace with secrets masked.
 
 ---
 

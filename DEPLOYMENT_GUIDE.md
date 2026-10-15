@@ -1060,7 +1060,7 @@ kubectl -n hammerspace-di exec ds/hammerspace-di -- journalctl -u pd-di -n 100
 on hosts whose system locale isn't UTF-8 (Korean ko_KR, Japanese ja_JP, etc.).
 ```bash
 # Recommended: use the wrapper (auto-detects installed UTF-8 locale and
-# also sets ANSIBLE_LOG_PATH to ~/logs/ansible-<timestamp>.log)
+# also sets ANSIBLE_LOG_PATH to <repo>/logs/ansible-<timestamp>-<cmd>-<playbook>-<pid>.log)
 ./scripts/run.sh playbook site.yml -i inventory.yml
 ./scripts/run.sh inventory -i inventory.yml --list
 ```
@@ -1079,8 +1079,10 @@ sudo localedef -i en_US -f UTF-8 en_US.UTF-8   # universal
 
 **Cause:** Shell aliases don't propagate through `exec`. The wrapper now sets a sensible default itself:
 ```bash
-ANSIBLE_LOG_PATH=${HOME}/logs/ansible-<timestamp>.log
+ANSIBLE_LOG_PATH=<repo>/logs/ansible-<timestamp>-<cmd>-<playbook>-<pid>.log
 ```
+Runs that don't go through the wrapper are still logged to `logs/ansible.log`
+(`log_path` in `ansible.cfg`). The GUI lists all of them under **Logs & Reports**.
 Override at invocation time:
 ```bash
 ANSIBLE_LOG_PATH=/custom/path.log ./scripts/run.sh playbook site.yml -i inventory.yml

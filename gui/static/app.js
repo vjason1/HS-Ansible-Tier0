@@ -254,6 +254,7 @@ async function route() {
     else if (kind === 'utilities') await pageUtilities(view);
     else if (kind === 'upgrade') await pageUpgrade(view, parts[1], parts[2]);
     else if (kind === 'jobs') await pageJobs(view, parts[1]);
+    else if (kind === 'logs') await pageLogs(view, parts[1], parts[2]);
     else if (kind === 'docs') await pageDocs(view, parts.slice(1).join('/'));
   } catch (e) {
     view.append(h('div', { class: 'notice red' }, h('p', { text: e.message })));
@@ -1202,7 +1203,7 @@ function jobsTable(jobs) {
 async function pageJobs(view, jobId) {
   if (!jobId) {
     const d = await api('/api/jobs');
-    const page = h('div', { class: 'page wide' }, pageHead('Job history', 'Every playbook and tool run from this GUI. Logs are kept in .gui-jobs/.'));
+    const page = h('div', { class: 'page wide' }, pageHead('Job history', 'Every playbook and tool run from this GUI. Output is kept in logs/gui-jobs/; each playbook run also has its own Ansible log — see Logs & Reports.'));
     page.append(d.jobs.length ? jobsTable(d.jobs) : h('div', { class: 'empty', text: 'No jobs yet. Start one from Run playbooks, Hammerspace utilities or OS Upgrade Check.' }));
     view.append(page);
     return;
@@ -1234,9 +1235,22 @@ async function pageJobs(view, jobId) {
     if (d.status !== 'running' && d.status !== 'stopping' && d.status !== 'queued') {
       done = true; stopPollers(); refreshJobsLed(); refreshIssues();
       const ex = (d.meta && d.meta.extra) || {};
+      const row = h('div', { class: 'btn-row' });
       if (d.meta && d.meta.playbook === 'os_upgrade_snapshot.yml') {
-        after.append(h('div', { class: 'spacer' }), h('a', { class: 'btn primary', href: '#/upgrade/' + (ex.snapshot_run || 'os-upgrade'), text: 'Open the OS Upgrade Check results' }));
+        row.append(h('a', { class: 'btn primary', href: '#/upgrade/' + (ex.snapshot_run || 'os-upgrade'), text: 'Open the OS Upgrade Check results' }));
       }
+      const jobLogId = 'repo:logs/gui-jobs/' + d.id + '.log';
+      const ids = [jobLogId];
+      if (d.meta && d.meta.ansible_log) {
+        ids.push('repo:' + d.meta.ansible_log);
+        row.append(h('a', { class: 'btn', href: '#/logs/view/' + encodeURIComponent('repo:' + d.meta.ansible_log), text: 'Ansible log for this run' }));
+      }
+      if (d.meta && d.meta.kind === 'hs_upload') {
+        row.append(h('a', { class: 'btn', href: '#/logs', text: 'Logs & Reports' }));
+      } else if (!S.meta.read_only) {
+        row.append(h('button', { class: 'btn', type: 'button', text: 'Upload these logs to Hammerspace…', onclick: () => uploadDialog(ids, ['Job output: ' + d.title].concat(d.meta && d.meta.ansible_log ? ['Ansible log: ' + d.meta.ansible_log] : [])) }));
+      }
+      after.append(h('div', { class: 'spacer' }), row);
     }
   };
   stopBtn.onclick = async () => { await api('/api/jobs/' + jobId + '/stop', { method: 'POST' }); toast('Stopping job'); };
@@ -1308,7 +1322,8 @@ async function pageUpgrade(view, runName, host) {
       t.append(h('tr', {}, h('td', { text: x.host }), h('td', {}, snap(x.pre)), h('td', {}, snap(x.post)), h('td', {}, result),
         h('td', {}, x.diff || (x.archives && x.archives.length > 1) ? h('a', { href: '#/upgrade/' + encodeURIComponent(r.run) + '/' + encodeURIComponent(x.host), text: 'Open report' }) : null)));
     }
-    page.append(h('h3', { text: r.run, style: 'margin:18px 0 8px' }), t);
+    page.append(h('div', { class: 'row', style: 'margin:18px 0 8px' }, h('h3', { text: r.run, style: 'margin:0' }), h('span', { class: 'grow' }),
+      S.meta.read_only ? null : h('button', { class: 'btn quiet', type: 'button', text: 'Upload this run to Hammerspace…', onclick: () => uploadDialog(['repo:snapshots/' + r.run], ['OS upgrade run ' + r.run + ' (' + r.hosts.length + ' host' + (r.hosts.length === 1 ? '' : 's') + ', incl. SUMMARY)']) })), t);
   }
   view.append(page);
 }
@@ -1324,7 +1339,8 @@ async function upgradeReport(view, run, host, runs) {
     h('a', { class: 'btn', href: '/api/upgrade/report?format=html&' + q, target: '_blank', rel: 'noopener', text: 'Open HTML report' }),
     h('a', { class: 'btn', href: '/api/upgrade/report?format=txt&' + q, target: '_blank', rel: 'noopener', text: 'Text report' }),
     h('a', { class: 'btn quiet', href: '/api/upgrade/report?format=pre&' + q, target: '_blank', rel: 'noopener', text: 'pre.txt' }),
-    h('a', { class: 'btn quiet', href: '/api/upgrade/report?format=post&' + q, target: '_blank', rel: 'noopener', text: 'post.txt' })));
+    h('a', { class: 'btn quiet', href: '/api/upgrade/report?format=post&' + q, target: '_blank', rel: 'noopener', text: 'post.txt' }),
+    S.meta.read_only ? null : h('button', { class: 'btn', type: 'button', text: 'Upload to Hammerspace…', onclick: () => uploadDialog(['repo:snapshots/' + run + '/' + host], ['OS upgrade snapshots and reports for ' + host + ' (run ' + run + ')']) })));
   // compare arbitrary archived captures
   const opts = ['pre.txt', 'post.txt'].concat(hx ? hx.archives : []);
   const a = h('select', { id: 'cmp-a' }, opts.map((o) => h('option', { value: o, text: o })));
@@ -1520,5 +1536,222 @@ async function pageDocs(view, name) {
   doc.append(renderMarkdown(d.text, name));
   if (S.docFrag) { const f = S.docFrag; S.docFrag = null; setTimeout(() => scrollToHeading(f), 50); }
 }
+
+// ------------------------------------------------------------------ logs & reports
+const LOG_KINDS = [['all', 'All'], ['ansible', 'Ansible runs'], ['job', 'GUI jobs'], ['report', 'Reports'], ['upload', 'Uploads'], ['activity', 'Activity']];
+function fmtSize(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1048576).toFixed(1) + ' MB';
+}
+function dlUrl(id, inline) {
+  return '/api/logs/download?id=' + encodeURIComponent(id) + '&token=' + encodeURIComponent(S.token) + (inline ? '&inline=1' : '');
+}
+
+async function uploadDialog(ids, labels) {
+  let st;
+  try { st = await api('/api/logs/settings'); } catch (e) { toast(e.message, true); return; }
+  const ini = h('input', { type: 'text', id: 'up-ini', value: st.upload_initials || '', autocomplete: 'off', placeholder: 'e.g. JV' });
+  const cust = h('input', { type: 'text', id: 'up-cust', value: st.upload_customer || '', autocomplete: 'off', placeholder: 'e.g. Acme' });
+  const note = h('input', { type: 'text', id: 'up-note', autocomplete: 'off', placeholder: 'Case number, what happened, ... (goes into MANIFEST.txt)' });
+  const cfg = h('input', { type: 'checkbox', id: 'up-cfg' });
+  const msg = h('div');
+  const custom = st.upload_url !== (S.logsDefaultUrl || st.upload_url);
+  const choice = await modal('Upload to Hammerspace', [
+    h('p', {}, 'Bundles the items below into ', h('code', { text: 'tier0_bundle_<host>_<time>.tar.gz' }),
+      ' and sends it to Hammerspace the same way HS_PS_Toolkit.sh does. Passwords, tokens, Authorization headers and similar values are masked first; every file and the number of masked values are listed in MANIFEST.txt.'),
+    h('ul', { class: 'small' }, labels.map((l) => h('li', { text: l }))),
+    h('div', { class: 'form-grid', style: 'border:0;padding:0' },
+      h('div', {}, h('label', { for: 'up-ini', text: 'Your initials' }), ini),
+      h('div', {}, h('label', { for: 'up-cust', text: 'Customer (short name)' }), cust),
+      h('div', { class: 'full' }, h('label', { for: 'up-note', text: 'Note (optional)' }), note),
+      h('div', { class: 'full' }, h('label', { class: 'switch' }, cfg, h('span', { class: 'track' }), 'Also include the configuration (vars/main.yml, inventories, ansible.cfg — secrets masked; vars/vault.yml is never included)'))),
+    h('p', { class: 'muted small' }, 'Destination: ', h('code', { text: st.upload_url }), custom ? ' (custom)' : '',
+      st.upload_verify_tls ? ' · TLS certificate verified' : ' · TLS certificate NOT verified (like the toolkit\'s curl --insecure)',
+      '. The controller needs HTTPS access to it. No internet? Choose “Build bundle only” and download it from Logs & Reports.'),
+    msg],
+  [{ label: 'Cancel', value: null },
+    { label: 'Build bundle only', value: 'bundle', onClick: () => checkUp() },
+    { label: 'Upload to Hammerspace', cls: 'primary', value: 'upload', onClick: () => checkUp() }]);
+  function checkUp() {
+    const bad = [ini, cust].some((x) => !/^[A-Za-z0-9]*$/.test(x.value.trim()));
+    clear(msg).append(bad ? h('p', { class: 'field-danger', text: 'Initials and customer: letters and numbers only.' }) : '');
+    return !bad;
+  }
+  if (!choice) return;
+  startJob({ kind: 'hs_upload', ids, initials: ini.value.trim(), customer: cust.value.trim(), note: note.value,
+    include_config: cfg.checked, bundle_only: choice === 'bundle' });
+}
+
+async function pageLogs(view, sub, id) {
+  if (sub === 'view' && id) return logViewer(view, id);
+  const d = await api('/api/logs');
+  S.logsDefaultUrl = d.default_upload_url;
+  const kind = S.logsKind || 'all';
+  const page = h('div', { class: 'page wide' });
+  page.append(pageHead('Logs & Reports',
+    'Every Ansible run (from this GUI, scripts/run.sh, or plain ansible-playbook in this repo), every GUI job, the GUI activity trail, and the reports the playbooks produce. View or download any of them, or select several and upload them to Hammerspace.'));
+  const total = d.entries.reduce((a, e) => a + e.size, 0);
+  const counts = {};
+  d.entries.forEach((e) => { counts[e.kind] = (counts[e.kind] || 0) + 1; });
+  page.append(h('div', { class: 'facts' },
+    fact(String(counts.ansible || 0), 'Ansible run logs'), fact(String(counts.job || 0), 'GUI job logs'),
+    fact(String(counts.report || 0), 'Reports'),
+    fact(fmtSize(total), d.settings.log_retention_days ? 'Kept ' + d.settings.log_retention_days + ' days' : 'Kept forever')));
+  page.append(h('div', { class: 'spacer' }));
+
+  const tabs = h('div', { class: 'tagpick', role: 'tablist' });
+  LOG_KINDS.forEach(([k, label]) => {
+    const n = k === 'all' ? d.entries.length : k === 'activity' ? d.activity.length : (counts[k] || 0);
+    tabs.append(h('label', { class: k === kind ? 'active' : '' },
+      h('input', { type: 'radio', name: 'logkind', value: k, checked: k === kind, onchange: () => { S.logsKind = k; route(); } }), label + ' (' + n + ')'));
+  });
+  const search = h('input', { type: 'search', id: 'log-search', placeholder: 'Filter by name or command…', value: S.logsFilter || '' });
+  const selInfo = h('span', { class: 'muted small' });
+  const upBtn = h('button', { class: 'btn primary', type: 'button', text: 'Upload selected to Hammerspace…', disabled: true });
+  const bundleBtn = h('button', { class: 'btn', type: 'button', text: 'Build bundle (download)…', disabled: true });
+  page.append(h('div', { class: 'row' }, tabs), h('div', { class: 'spacer' }),
+    h('div', { class: 'row' }, h('div', { style: 'width:360px;max-width:100%' }, search), selInfo, h('span', { class: 'grow' }),
+      S.meta.read_only || kind === 'activity' ? null : bundleBtn, S.meta.read_only || kind === 'activity' ? null : upBtn));
+  const body = h('div', { style: 'margin-top:12px' });
+  page.append(body);
+
+  if (kind === 'activity') {
+    const drawAct = () => {
+      clear(body);
+      S.logsFilter = search.value;
+      const q = search.value.toLowerCase();
+      const t = h('table', { class: 'grid' }, h('tr', {}, h('th', { text: 'Time' }), h('th', { text: 'Event' }), h('th', { text: 'User' }), h('th', { text: 'Details' })));
+      const rows = d.activity.filter((a) => !q || JSON.stringify(a).toLowerCase().includes(q));
+      rows.forEach((a) => {
+        const det = Object.assign({}, a); ['ts', 'event', 'user', 'client'].forEach((k) => delete det[k]);
+        const txt = Object.entries(det).filter(([, v]) => v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && !v.length))
+          .map(([k, v]) => k + '=' + (typeof v === 'object' ? JSON.stringify(v) : v)).join('  ');
+        const link = a.job ? h('a', { href: '#/jobs/' + a.job, text: 'job' }) : null;
+        t.append(h('tr', {}, h('td', { class: 'mono small', text: a.ts.replace('T', ' ') }), h('td', { text: a.event }), h('td', { text: a.user }),
+          h('td', { class: 'mono small', style: 'word-break:break-all' }, link, link ? '  ' : '', txt)));
+      });
+      body.append(rows.length ? t : h('div', { class: 'empty', text: d.activity.length ? 'Nothing matches the filter.' : 'No activity recorded yet.' }),
+        h('p', { class: 'muted small', text: 'Newest first, last 200 entries. The full trail is logs/gui-audit.log (one JSON object per line), listed under All.' }));
+    };
+    search.addEventListener('input', drawAct);
+    drawAct();
+  } else {
+    const sel = new Set();
+    const update = () => {
+      selInfo.textContent = sel.size ? sel.size + ' selected' : '';
+      upBtn.disabled = bundleBtn.disabled = !sel.size;
+    };
+    const list = d.entries.filter((e) => (kind === 'all' || e.kind === kind));
+    const draw = () => {
+      clear(body);
+      const q = search.value.trim().toLowerCase();
+      S.logsFilter = search.value;
+      const rows = list.filter((e) => !q || (e.name + ' ' + (e.title || '')).toLowerCase().includes(q));
+      if (!rows.length) { body.append(h('div', { class: 'empty', text: list.length ? 'Nothing matches the filter.' : 'Nothing here yet.' })); return; }
+      const all = h('input', { type: 'checkbox', 'aria-label': 'Select all shown', onchange: (ev) => { rows.forEach((e) => (ev.target.checked ? sel.add(e.id) : sel.delete(e.id))); draw(); update(); } });
+      all.checked = rows.every((e) => sel.has(e.id));
+      const t = h('table', { class: 'grid' }, h('tr', {}, h('th', {}, all), h('th', { text: 'Log / report' }), h('th', { text: 'Type' }), h('th', { text: 'Size' }), h('th', { text: 'Modified' }), h('th')));
+      rows.forEach((e) => {
+        const cb = h('input', { type: 'checkbox', checked: sel.has(e.id), 'aria-label': 'Select ' + e.name, onchange: () => { if (cb.checked) sel.add(e.id); else sel.delete(e.id); update(); } });
+        const name = h('div', {}, h('a', { href: '#/logs/view/' + encodeURIComponent(e.id), class: 'mono', text: e.name }));
+        if (e.title && e.title !== e.name) name.append(h('div', { class: 'muted small', text: e.title }));
+        if (e.status) name.append(h('div', { class: 'small' }, h('span', { class: 'chip ' + (e.status === 'succeeded' ? 'green' : e.status === 'failed' ? 'red' : 'amber'), text: e.status })));
+        const acts = h('div', { class: 'btn-row', style: 'gap:10px;flex-wrap:nowrap' },
+          h('a', { href: '#/logs/view/' + encodeURIComponent(e.id), text: 'View' }),
+          /\.html$/.test(e.name) ? h('a', { href: dlUrl(e.id, true), target: '_blank', rel: 'noopener', text: 'Open' }) : null,
+          h('a', { href: dlUrl(e.id), text: 'Download' }),
+          e.job && e.kind === 'ansible' ? h('a', { href: '#/jobs/' + e.job, text: 'Job' }) : null,
+          e.ansible_log ? h('a', { href: '#/logs/view/' + encodeURIComponent(e.ansible_log), text: 'Ansible log' }) : null);
+        t.append(h('tr', {}, h('td', {}, cb), h('td', {}, name), h('td', { text: e.label }),
+          h('td', { class: 'num', text: fmtSize(e.size) }), h('td', { class: 'small', text: fmtTime(e.mtime) }), h('td', {}, acts)));
+      });
+      body.append(t);
+    };
+    search.addEventListener('input', draw);
+    const labelsOf = () => d.entries.filter((e) => sel.has(e.id)).map((e) => e.label + ': ' + e.name);
+    upBtn.onclick = () => uploadDialog([...sel], labelsOf());
+    bundleBtn.onclick = () => uploadDialog([...sel], labelsOf());
+    draw(); update();
+  }
+
+  // ---- settings
+  const days = h('input', { type: 'number', id: 'ls-days', min: 0, max: 3650, value: d.settings.log_retention_days });
+  const url = h('input', { type: 'text', id: 'ls-url', class: 'mono', value: d.settings.upload_url });
+  const tls = h('input', { type: 'checkbox', id: 'ls-tls', checked: !d.settings.upload_verify_tls });
+  const res = h('div');
+  page.append(h('h2', { text: 'Retention and upload settings' }), h('div', { class: 'form-grid' },
+    h('div', {}, h('label', { for: 'ls-days', text: 'Keep logs for (days)' }), days,
+      h('div', { class: 'field-help', text: '0 = keep forever. Applies to Ansible run logs, GUI job logs, rotated activity logs and upload bundles. Reports (OS upgrade snapshots, preflight and instance reports) are never deleted. Checked at start-up and every 6 hours.' })),
+    h('div', {}, h('label', { for: 'ls-url', text: 'Hammerspace upload URL' }), url,
+      h('div', { class: 'field-help' }, 'Default: ', h('code', { text: d.default_upload_url }), ' (the HS_PS_Toolkit.sh intake).')),
+    h('div', { class: 'full' }, h('label', { class: 'switch' }, tls, h('span', { class: 'track' }), 'Don\'t verify the TLS certificate of the upload server'),
+      h('div', { class: 'field-help', text: 'HS_PS_Toolkit.sh uploads with curl --insecure. Leave this off unless uploads fail with a certificate error.' })),
+    h('div', { class: 'full muted small' }, 'Logs folder: ', h('code', { text: d.dirs.logs }), d.dirs.legacy ? h('span', {}, ' · also listing older logs from ', h('code', { text: d.dirs.legacy })) : null),
+    S.meta.read_only ? null : h('div', { class: 'full btn-row' },
+      h('button', { class: 'btn primary', type: 'button', text: 'Save settings', onclick: async () => {
+        try {
+          await api('/api/logs/settings', { body: { log_retention_days: Number(days.value), upload_url: url.value.trim(), upload_verify_tls: !tls.checked } });
+          toast('Settings saved');
+        } catch (e) { toast(e.message, true); }
+      } }),
+      h('button', { class: 'btn', type: 'button', text: 'Apply retention now', onclick: async () => {
+        try {
+          const r = await api('/api/logs/prune', { method: 'POST' });
+          clear(res).append(h('p', { class: 'muted small', text: r.retention_days ? 'Deleted ' + r.deleted + ' file(s) older than ' + r.retention_days + ' days (' + fmtSize(r.bytes) + ').' : 'Retention is 0 (keep forever) — nothing deleted.' }));
+        } catch (e) { toast(e.message, true); }
+      } }), res)));
+  view.append(page);
+}
+
+async function logViewer(view, id) {
+  const page = h('div', { class: 'page wide' });
+  const name = id.replace(/^[a-z]+:/, '');
+  const pre = h('pre', { class: 'log wrap' });
+  const info = h('span', { class: 'muted small' });
+  const filter = h('input', { type: 'search', placeholder: 'Show only lines containing…', style: 'max-width:340px' });
+  const earlier = h('button', { class: 'btn', type: 'button', text: 'Load earlier' });
+  const later = h('button', { class: 'btn', type: 'button', text: 'Load more' });
+  page.append(h('div', { class: 'page-head' }, h('a', { href: '#/logs', text: 'Logs & Reports' }), h('h1', { class: 'mono', style: 'font-size:20px', text: name })),
+    h('div', { class: 'btn-row' },
+      h('a', { class: 'btn', href: dlUrl(id), text: 'Download' }),
+      /\.html$/.test(name) ? h('a', { class: 'btn', href: dlUrl(id, true), target: '_blank', rel: 'noopener', text: 'Open report' }) : null,
+      S.meta.read_only ? null : h('button', { class: 'btn', type: 'button', text: 'Upload to Hammerspace…', onclick: () => uploadDialog([id], [name]) }),
+      h('span', { class: 'grow' }), filter),
+    h('div', { class: 'spacer' }), h('div', { class: 'row' }, earlier, info), h('div', { class: 'spacer' }), pre, h('div', { class: 'spacer' }), later);
+  view.append(page);
+  let text = '', start = 0, end = 0, size = 0;
+  const render = () => {
+    const q = filter.value;
+    const lines = text.split('\n');
+    clear(pre);
+    const shown = q ? lines.filter((l) => l.toLowerCase().includes(q.toLowerCase())) : lines;
+    pre.textContent = shown.join('\n') || (q ? '(no matching lines in the loaded part)' : '(empty)');
+    info.textContent = 'Showing bytes ' + start.toLocaleString() + '–' + end.toLocaleString() + ' of ' + size.toLocaleString() + (q ? ' · ' + shown.length + ' matching line(s)' : '');
+    earlier.hidden = start === 0;
+    later.hidden = end >= size;
+  };
+  const load = async (params) => {
+    const r = await api('/api/logs/view?id=' + encodeURIComponent(id) + params);
+    return r;
+  };
+  try {
+    const r = await load('&tail=1');          // newest part first — logs are read bottom-up
+    text = r.text; start = r.offset; end = r.next; size = r.size;
+  } catch (e) { pre.textContent = e.message; return; }
+  earlier.onclick = async () => {
+    const from = Math.max(0, start - 512 * 1024);
+    const r = await load('&offset=' + from + '&length=' + (start - from));   // exactly the bytes before what is shown
+    text = r.text + text; start = from; render();
+  };
+  later.onclick = async () => {
+    const r = await load('&offset=' + end);
+    text += r.text; end = r.next; size = r.size; render();
+  };
+  filter.addEventListener('input', render);
+  render();
+  if (!filter.value) pre.scrollTop = pre.scrollHeight;
+}
+
 
 boot();
