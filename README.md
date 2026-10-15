@@ -115,6 +115,7 @@ ansible-storage-setup/
 ├── snapshots/               # Snapshot output: <run>/<host>/pre.txt, post.txt, diff.* (gitignored)
 ├── scripts/
 │   ├── run.sh               # Wrapper that forces en_US.UTF-8 locale (use on non-English hosts)
+│   ├── push_ssh_key.py           # Authorize the controller's SSH public key on hosts (password once)
 │   ├── tier0_config_snapshot.sh  # Read-only node config collector (runs standalone too)
 │   └── tier0_snapshot_diff.py    # Section-aware diff → text / HTML / JSON + fleet summary
 ├── tests/
@@ -1197,7 +1198,7 @@ python3 gui/tier0_gui.py --read-only        # browse + validate only; no saves, 
 
 | Menu group | Menus | File edited |
 |------------|-------|-------------|
-| Inventory | Static hosts (groups, AZ subgroups, host/group vars), OCI, AWS, GCP, Azure | `inventory.yml` / `inventory.az.yml`, `inventory.<cloud>.yml` |
+| Inventory | Static hosts (groups, AZ subgroups, host/group vars, **copy the controller's SSH key to hosts** with a user + password), OCI, AWS, GCP, Azure | `inventory.yml` / `inventory.az.yml`, `inventory.<cloud>.yml` |
 | Tier 0 Configuration | Storage Layout, RAID Sizing & CPU Tuning, Device Exclusions, NFS Server & Exports, Performance Tuning, Mount Protection, Firewall, Pre-checks, Safety Switches | `vars/main.yml` |
 | Hammerspace | API, Volumes & AZ, Volume Groups/Shares/Objectives, Throttling & Timeouts, Cluster Settings, S3 | `vars/main.yml` |
 | Data Instantiator | Deployment, Packages, Node/AZ/Host, Kubernetes, Decommission | `vars/main.yml` |
@@ -2271,6 +2272,28 @@ python3 add_volumes_to_group.py --host <ANVIL_IP> --user admin --password-file ~
 # List current volume group members
 python3 add_volumes_to_group.py --host <ANVIL_IP> --user admin --password-file ~/.hs_password \
   --group "tier0-az1-volumes" --list
+```
+
+### push_ssh_key.py
+
+Authorizes this controller's SSH **public** key on hosts that only accept a
+password so far, so Ansible can use the controller's own private key — no
+private key file is copied anywhere. Logs in once per host with the user and
+password, appends the key to `~/.ssh/authorized_keys` only if it isn't already
+there, then verifies key-only login. The GUI's **Static Hosts → Copy SSH key to
+hosts** runs it and can write `ansible_user` / `ansible_ssh_private_key_file`
+into the inventory.
+
+```bash
+read -rs TIER0_SSH_PASSWORD && export TIER0_SSH_PASSWORD     # never pass it as an argument
+python3 scripts/push_ssh_key.py --user ubuntu --pubkey ~/.ssh/id_ed25519.pub \
+  --target node101=10.200.101.216 --target node102=10.200.101.182:2222
+
+# No key on the controller yet: create one (never overwrites) and install it
+python3 scripts/push_ssh_key.py --user ubuntu --generate ~/.ssh/id_ed25519 --target 10.200.101.216
+
+# --ignore-host-keys  for reimaged nodes reusing IPs (otherwise a changed host key is refused)
+# Exit: 0 all hosts OK, 1 some failed, 2 usage error
 ```
 
 ### rename_oci_instances_az.py

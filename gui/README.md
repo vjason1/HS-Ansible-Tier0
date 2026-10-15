@@ -15,6 +15,7 @@ green (blinking) on Job History while a job runs.
 - [How saving works](#how-saving-works)
 - [Credentials and Ansible Vault](#credentials-and-ansible-vault)
 - [Static host inventory](#static-host-inventory)
+- [Copying the controller's SSH key to hosts](#copying-the-controllers-ssh-key-to-hosts)
 - [Running playbooks and tools](#running-playbooks-and-tools)
 - [OS Upgrade Check](#os-upgrade-check)
 - [Security model](#security-model)
@@ -64,10 +65,17 @@ needs `ansible-vault` for encrypted vaults.
 
 Each menu edits exactly one file. The file is named under the page title.
 
+The sidebar groups (Inventory, Tier 0 Configuration, Hammerspace, ...)
+collapse and expand with a click on their heading; **Collapse all** /
+**Expand all** sit at the bottom. The open/closed state is remembered in the
+browser, the group holding the page you open is always expanded, and a
+collapsed group shows its menu count plus the most urgent status dot of its
+menus, so unsaved edits or errors are never hidden.
+
 | Group | Menu | File | Covers |
 |-------|------|------|--------|
 | Getting Started | Overview | — | Git branch, Ansible version, default inventory, vault state, host counts, configuration check, recent jobs |
-| Inventory | Static Hosts | `inventory.yml` / `inventory.az.yml` | Groups (`storage_servers`, `di_nodes`, `nfs_clients`, `di_k8s_build_hosts`, custom), AZ subgroups, hosts, host and group variables |
+| Inventory | Static Hosts | `inventory.yml` / `inventory.az.yml` | Groups (`storage_servers`, `di_nodes`, `nfs_clients`, `di_k8s_build_hosts`, custom), AZ subgroups, hosts, host and group variables; **Copy SSH key to hosts** |
 | | OCI / AWS / GCP / Azure | `inventory.<cloud>.yml` | Regions/projects/zones/resource groups, filters, the `storage_servers` group expression |
 | Tier 0 Configuration | Storage Layout | `vars/main.yml` | Discovery vs. manual RAID vs. HW RAID vs. existing-mount mode, `storage_type`, mount base, `xfs_agcount`, ephemeral-mount release |
 | | RAID Sizing & CPU Tuning | `vars/main.yml` | RAID level, grouping strategy, max/min drives, power-of-2, leftovers, CPU profile overrides, sync waits |
@@ -166,13 +174,62 @@ to the raw editor instead of risking data loss.
 file, which is the quickest way to confirm what a cloud inventory will select
 before anything gets RAIDed.
 
+## Copying the controller's SSH key to hosts
+
+For hosts where key-based SSH was never set up — and where you don't want to
+copy a private key file onto the controller — **Static Hosts → Copy SSH key to
+hosts…** authorizes this controller's own key on them:
+
+1. Enter the **SSH user** and **password** to log in with. The user is
+   prefilled with the inventory's `ansible_user` when all hosts share one;
+   whatever you enter is the account the key is installed for.
+2. Pick the controller's public key (keys in `~/.ssh` of the user running the
+   GUI, with fingerprints), or **Generate a new ed25519 key pair** if there is
+   none (`~/.ssh/id_ed25519`, or `id_ed25519_tier0` if that name is taken —
+   an existing key is never overwritten).
+3. Choose the hosts (all remote hosts of the file are listed with the address,
+   port and inventory user Ansible would use; `ansible_connection: local`
+   hosts are skipped).
+4. **Copy key** runs [`scripts/push_ssh_key.py`](../scripts/push_ssh_key.py)
+   as a job. For each host it logs in once with the password, appends the
+   public key to `~/.ssh/authorized_keys` only if that exact line is not
+   already there (creating `~/.ssh` 0700 / `authorized_keys` 0600, restoring
+   SELinux labels), then logs in again **with the key only** to prove it works.
+
+With **Write ansible_user and ansible_ssh_private_key_file into the inventory**
+on (the default), the inventory editor is updated for the selected hosts — on
+the group when the whole group was selected, otherwise per host — and the
+Static Hosts menu turns yellow. Review the diff and **Save to file**; Ansible
+then connects with the controller's private key, which never leaves it.
+
+Notes:
+
+- The password is sent to the GUI server once, handed to `ssh` through an
+  environment variable read by a throwaway `SSH_ASKPASS` helper, and never
+  placed on a command line, written to disk or logged. `sshpass` is not needed.
+- The hosts must allow password logins for that user (`PasswordAuthentication
+  yes`; for `root`, `PermitRootLogin yes`). The job log names the reason for
+  every failure (wrong password, password logins disabled, host key changed,
+  unreachable, connection refused).
+- Unknown host keys are accepted and recorded in `~/.ssh/known_hosts`; a host
+  whose key **changed** is refused, because sending it a password could hand
+  the password to an impostor. For reimaged nodes that reuse IPs, run
+  `ssh-keygen -R <ip>` or tick **Don't check host keys**.
+- Same thing from a terminal:
+  ```bash
+  read -rs TIER0_SSH_PASSWORD && export TIER0_SSH_PASSWORD
+  python3 scripts/push_ssh_key.py --user ubuntu --pubkey ~/.ssh/id_ed25519.pub \
+      --target node101=10.200.101.216 --target node102=10.200.101.182:2222
+  ```
+
 ## Running playbooks and tools
 
 **Run Playbooks** builds an `./scripts/run.sh playbook ...` command (so the
 UTF-8 locale fix and `~/logs/` logging apply) from:
 
 - playbook (every playbook in the repo, with a description),
-- inventory files (`-i`, pre-selected from `ansible.cfg`), `--limit`,
+- inventory files (`-i`; `inventory.yml` is pre-selected — `ansible.cfg`'s
+  default is used only if `inventory.yml` does not exist), `--limit`,
 - tags and skip-tags as checkboxes (only tags that exist in the playbooks),
 - Check mode (**on by default**), `--diff`, verbosity,
 - playbook-specific extras (`deploy_di`, `hammerspace_serial`,

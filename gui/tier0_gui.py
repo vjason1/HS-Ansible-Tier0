@@ -574,6 +574,10 @@ def validate(repo):
         for part in [p.strip() for p in inv.split(",") if p.strip()]:
             if not os.path.exists(repo.path(part)):
                 add("error", "Ansible", "ansible.cfg inventory %s does not exist." % part, "ansible-cfg")
+        if inv.strip() and inv.strip() != "inventory.yml" and os.path.exists(repo.path("inventory.yml")):
+            add("info", "Ansible", "This app runs playbooks with inventory.yml by default; ansible.cfg "
+                "defaults to %s, which is what command-line runs without -i use." % inv.strip(),
+                "ansible-cfg")
     except ApiError:
         add("warning", "Ansible", "ansible.cfg not found.", "ansible-cfg")
 
@@ -669,6 +673,87 @@ def _snap_host_dir(repo, run, host):
     if not os.path.isdir(d):
         raise ApiError(404, "no snapshots for %s/%s" % (run, host))
     return d
+
+
+# ===========================================================================
+# SSH key bootstrap (Static Hosts -> "Copy SSH key to hosts")
+# ===========================================================================
+def ssh_dir():
+    return os.path.expanduser("~/.ssh")
+
+
+def list_ssh_keys():
+    """Public keys of the user running the GUI (the identity Ansible will use)."""
+    keys = []
+    d = ssh_dir()
+    if not os.path.isdir(d):
+        return keys
+    for name in sorted(os.listdir(d)):
+        if not name.endswith(".pub"):
+            continue
+        path = os.path.join(d, name)
+        try:
+            with open(path) as fh:
+                line = fh.read().strip()
+        except OSError:
+            continue
+        parts = line.split(None, 2)
+        if len(parts) < 2:
+            continue
+        fp = ""
+        if shutil.which("ssh-keygen"):
+            try:
+                fp = subprocess.check_output(["ssh-keygen", "-lf", path], stderr=subprocess.DEVNULL,
+                                             timeout=10).decode().split()[1]
+            except Exception:  # noqa: BLE001
+                pass
+        priv = path[:-4]
+        keys.append({"path": path, "type": parts[0], "comment": parts[2] if len(parts) > 2 else "",
+                     "fingerprint": fp, "private_key": priv if os.path.isfile(priv) else None})
+    keys.sort(key=lambda k: (k["private_key"] is None, "ed25519" not in k["type"], k["path"]))
+    return keys
+
+
+def build_ssh_push(repo, body):
+    sys.path.insert(0, os.path.join(repo.root, "scripts"))
+    import push_ssh_key  # noqa: E402
+    user = str(body.get("user") or "").strip()
+    if not push_ssh_key.USER_RE.match(user):
+        raise ApiError(400, "enter the SSH user to log in as (letters, digits, . _ -)")
+    if not body.get("password"):
+        raise ApiError(400, "enter the SSH password for %s" % user)
+    targets = body.get("targets") or []
+    if not targets:
+        raise ApiError(400, "select at least one host")
+    specs = []
+    for t in targets:
+        spec = "%s=%s:%d" % (t.get("name") or t.get("host"), t.get("host"), int(t.get("port") or 22))
+        try:
+            push_ssh_key.Target(spec)
+        except ValueError as exc:
+            raise ApiError(400, "host %s: %s" % (t.get("name") or t.get("host"), exc))
+        specs.append(spec)
+    argv = [sys.executable, os.path.join(repo.root, "scripts", "push_ssh_key.py"), "--user", user]
+    if body.get("generate"):
+        target_key = os.path.join(ssh_dir(), "id_ed25519")
+        if os.path.exists(target_key):
+            target_key = os.path.join(ssh_dir(), "id_ed25519_tier0")
+        argv += ["--generate", target_key]
+    else:
+        allowed = {k["path"] for k in list_ssh_keys()}
+        if body.get("pubkey") not in allowed:
+            raise ApiError(400, "choose one of the controller's public keys")
+        argv += ["--pubkey", body["pubkey"]]
+    if body.get("ignore_host_keys"):
+        argv.append("--ignore-host-keys")
+    for spec in specs:
+        argv += ["--target", spec]
+    return argv, {"TIER0_SSH_PASSWORD": body["password"]}, "Copy SSH key to %d host(s) as %s" % (len(specs), user)
+
+
+def _ssh_keys(handler, q):
+    handler._send(200, {"keys": list_ssh_keys(), "ssh_dir": ssh_dir(),
+                        "ssh_client": bool(shutil.which("ssh"))})
 
 
 def _differ():
@@ -957,6 +1042,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if body.get("hs_password"):
                     env["HAMMERSPACE_PASSWORD"] = body["hs_password"]
                 title = body.get("script")
+            elif kind == "ssh_key_push":
+                argv, env, title = build_ssh_push(repo, body)
+                meta.update({"user": body.get("user"), "hosts": len(body.get("targets") or [])})
             elif kind == "inventory_graph":
                 inv = body.get("inventory")
                 if inv not in repo.inventory_files():
@@ -1081,6 +1169,7 @@ def _docs_list(handler, q):
 
 
 ROUTES[("GET", "/api/docs")] = _docs_list
+ROUTES[("GET", "/api/ssh/keys")] = _ssh_keys
 ROUTES[("GET", "/api/doc")] = _doc_get
 
 

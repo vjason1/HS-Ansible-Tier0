@@ -167,27 +167,66 @@ function currentId() {
   return p[0] || 'overview';
 }
 
+// Sidebar groups collapse/expand. State persists per browser; the group that
+// holds the current page always opens, and a collapsed group shows the most
+// urgent status dot of its menus so unsaved edits or errors are never hidden.
+const NAV_KEY = 'tier0-nav-collapsed';
+function navCollapsed() {
+  try { return new Set(JSON.parse(localStorage.getItem(NAV_KEY) || '[]')); } catch (e) { return new Set(); }
+}
+function setNavCollapsed(set) {
+  try { localStorage.setItem(NAV_KEY, JSON.stringify([...set])); } catch (e) { /* ignore */ }
+}
+function itemLed(it) {
+  const f = S.forms[it.id];
+  let led = '';
+  if (S.issues.some((i) => i.menu === it.id && i.level === 'error')) led = 'error';
+  if (f && Object.keys(f.edits).length) led = 'dirty';
+  if (it.id === 'inventory' && S.inv && S.inv.dirty) led = 'dirty';
+  if (it.id === 'jobs' && S.jobs.some((j) => j.status === 'running')) led = 'busy';
+  return led;
+}
+const LED_RANK = { error: 3, dirty: 2, busy: 1, '': 0 };
+const LED_TEXT = { dirty: ' (unsaved changes)', error: ' (has errors)', busy: ' (job running)', '': '' };
+
 function renderNav() {
   const nav = clear($('#nav'));
   const cur = currentId();
-  for (const g of S.meta.menus) {
-    const grp = h('div', { class: 'nav-group' }, h('h3', { text: g.title }));
-    for (const it of g.items) {
-      let led = '';
-      const f = S.forms[it.id];
-      if (S.issues.some((i) => i.menu === it.id && i.level === 'error')) led = 'error';
-      if (f && Object.keys(f.edits).length) led = 'dirty';
-      if (it.id === 'inventory' && S.inv && S.inv.dirty) led = 'dirty';
-      if (it.id === 'jobs' && S.jobs.some((j) => j.status === 'running')) led = 'busy';
-      const label = led === 'dirty' ? ' (unsaved changes)' : led === 'error' ? ' (has errors)' : '';
-      grp.append(h('a', {
+  const collapsed = navCollapsed();
+  const navigated = S.navAutoOpen !== cur;   // first render after moving to another page
+  S.navAutoOpen = cur;
+  S.meta.menus.forEach((g, gi) => {
+    if (navigated && collapsed.has(g.title) && g.items.some((it) => it.id === cur)) {
+      collapsed.delete(g.title); setNavCollapsed(collapsed);   // navigating into a closed group opens it
+    }
+    const open = !collapsed.has(g.title);
+    const listId = 'nav-list-' + gi;
+    const leds = g.items.map(itemLed);
+    const worst = leds.reduce((a, b) => (LED_RANK[b] > LED_RANK[a] ? b : a), '');
+    const head = h('button', {
+      type: 'button', class: 'nav-group-toggle', 'aria-expanded': open ? 'true' : 'false', 'aria-controls': listId,
+      onclick: () => {
+        const c = navCollapsed();
+        if (c.has(g.title)) c.delete(g.title); else c.add(g.title);
+        setNavCollapsed(c); renderNav();
+      },
+    }, h('span', { class: 'chev', 'aria-hidden': 'true' }), h('span', { class: 'grow', text: g.title }),
+    !open && worst ? h('span', { class: 'led ' + worst, title: LED_TEXT[worst].trim().replace(/[()]/g, '') }) : null,
+    !open ? h('span', { class: 'nav-count', text: String(g.items.length) }) : null);
+    const list = h('div', { class: 'nav-list', id: listId, hidden: !open });
+    g.items.forEach((it, i) => {
+      const led = leds[i];
+      list.append(h('a', {
         class: 'nav-item', href: '#/' + it.id, 'aria-current': it.id === cur ? 'page' : null,
         onclick: () => $('#rack').classList.remove('open'),
       }, h('span', { class: 'led ' + led, 'aria-hidden': 'true' }), it.title,
-      label ? h('span', { class: 'sr-only', style: 'position:absolute;left:-9999px', text: label }) : null));
-    }
-    nav.append(grp);
-  }
+      LED_TEXT[led] ? h('span', { class: 'sr-only', text: LED_TEXT[led] }) : null));
+    });
+    nav.append(h('div', { class: 'nav-group' + (open ? '' : ' collapsed') }, head, list));
+  });
+  nav.append(h('div', { class: 'nav-tools' },
+    h('button', { type: 'button', class: 'linkbtn', text: 'Collapse all', onclick: () => { setNavCollapsed(new Set(S.meta.menus.filter((g) => !g.items.some((it) => it.id === currentId())).map((g) => g.title))); renderNav(); } }),
+    h('button', { type: 'button', class: 'linkbtn', text: 'Expand all', onclick: () => { setNavCollapsed(new Set()); renderNav(); } })));
 }
 
 function menuItem(id) {
@@ -240,7 +279,7 @@ async function pageOverview(view) {
   page.append(h('div', { class: 'facts cols3' },
     fact(o.git.branch ? o.git.branch + (o.git.dirty ? ' *' : '') : '—', 'Git branch' + (o.git.commit ? ' @ ' + o.git.commit : '')),
     fact(o.ansible ? o.ansible.replace(/^ansible(-playbook)? \[?core ?/, '').replace(/\]$/, '') : 'not installed', 'Ansible core'),
-    fact(o.ansible_cfg_inventory || '—', 'Default inventory (ansible.cfg)'),
+    fact(S.meta.inventories.includes('inventory.yml') ? 'inventory.yml' : (o.ansible_cfg_inventory || '—'), 'Default inventory for runs in this app'),
     fact(String(counts.storage_servers || 0), 'Storage servers in inventory.yml'),
     fact(String(counts.di_nodes || 0), 'DI nodes in inventory.yml'),
     fact(o.vault, 'vars/vault.yml'),
@@ -674,6 +713,7 @@ async function pageInventory(view, file) {
   sel.value = file;
   page.append(h('div', { class: 'row' },
     h('label', { for: 'inv-file', text: 'File' }), h('div', { style: 'width:280px' }, sel), h('span', { class: 'grow' }),
+    S.meta.read_only ? null : h('button', { class: 'btn primary', type: 'button', text: 'Copy SSH key to hosts…', onclick: () => sshKeyDialog(inv) }),
     h('button', { class: 'btn', type: 'button', text: 'Show resolved inventory', onclick: () => startJob({ kind: 'inventory_graph', inventory: file }) }),
     h('a', { class: 'btn quiet', href: '#/files/' + file, text: 'Edit as YAML' })));
   if (m.complex && m.complex.length) {
@@ -743,6 +783,118 @@ async function pageInventory(view, file) {
   view.append(page);
 }
 
+// ------------------------------------------------------------------ SSH key bootstrap
+// Every host in the (possibly unsaved) inventory model, with the address, port and
+// user Ansible would use: host vars > subgroup vars > group vars > all.vars.
+function inventoryHosts(m) {
+  const out = []; const seen = new Set();
+  const pick = (k, ...scopes) => { for (const sc of scopes) if (sc && sc[k] !== undefined && sc[k] !== '') return sc[k]; return undefined; };
+  m.groups.forEach((g, gi) => {
+    const add = (host, sub) => {
+      if (!host.name || seen.has(host.name)) return;
+      seen.add(host.name);
+      const v = host.vars || {};
+      out.push({ name: host.name, host: String(pick('ansible_host', v) || host.name),
+        port: Number(pick('ansible_port', v, sub && sub.vars, g.vars, m.all_vars) || 22),
+        user: pick('ansible_user', v, sub && sub.vars, g.vars, m.all_vars) || '',
+        local: pick('ansible_connection', v, sub && sub.vars, g.vars, m.all_vars) === 'local',
+        group: g.name + (sub ? '/' + sub.name : ''), gi, ref: host });
+    };
+    g.hosts.forEach((x) => add(x, null));
+    g.children.forEach((c) => c.hosts.forEach((x) => add(x, c)));
+  });
+  return out;
+}
+
+async function sshKeyDialog(inv) {
+  const m = inv.model;
+  const hosts = inventoryHosts(m).filter((x) => !x.local);
+  if (!hosts.length) { toast('The inventory has no remote hosts to set up.', true); return; }
+  let keyInfo;
+  try { keyInfo = await api('/api/ssh/keys'); } catch (e) { toast(e.message, true); return; }
+  if (!keyInfo.ssh_client) { toast('The OpenSSH client (ssh) is not installed on this controller.', true); return; }
+
+  const users = [...new Set(hosts.map((x) => x.user).filter(Boolean))];
+  const user = h('input', { type: 'text', id: 'ssh-user', class: 'mono', value: users.length === 1 ? users[0] : '', autocomplete: 'off', placeholder: 'e.g. ubuntu, rocky, root' });
+  const pw = h('input', { type: 'password', id: 'ssh-pw', autocomplete: 'off' });
+  const keySel = h('select', { id: 'ssh-key' });
+  keyInfo.keys.forEach((k) => keySel.append(h('option', { value: k.path,
+    text: k.path.replace(/^.*\//, '') + '  ·  ' + k.type.replace('ssh-', '') + (k.fingerprint ? '  ·  ' + k.fingerprint : '') + (k.private_key ? '' : '  (no private key here)') })));
+  keySel.append(h('option', { value: '__generate__', text: 'Generate a new ed25519 key pair in ' + keyInfo.ssh_dir }));
+  if (!keyInfo.keys.length) keySel.value = '__generate__';
+  const ignoreHk = h('input', { type: 'checkbox', id: 'ssh-ignhk' });
+  const writeInv = h('input', { type: 'checkbox', id: 'ssh-inv', checked: true });
+  const msg = h('div');
+
+  const boxes = [];
+  const tbl = h('table', { class: 'hosts' }, h('tr', {},
+    h('th', {}, h('input', { type: 'checkbox', checked: true, 'aria-label': 'Select all hosts', onchange: (ev) => boxes.forEach((b) => { b.checked = ev.target.checked; }) })),
+    h('th', { text: 'Host' }), h('th', { text: 'Connects to' }), h('th', { text: 'Group' }), h('th', { text: 'Inventory user' })));
+  hosts.forEach((x) => {
+    const cb = h('input', { type: 'checkbox', checked: true, 'aria-label': 'Include ' + x.name });
+    boxes.push(cb);
+    tbl.append(h('tr', {}, h('td', {}, cb), h('td', { text: x.name }), h('td', { class: 'mono', text: x.host + (x.port !== 22 ? ':' + x.port : '') }),
+      h('td', { text: x.group }), h('td', { class: 'mono', text: x.user || '—' })));
+  });
+
+  const privFor = () => {
+    if (keySel.value !== '__generate__') { const k = keyInfo.keys.find((x) => x.path === keySel.value); return k && k.private_key; }
+    const base = keyInfo.ssh_dir + '/id_ed25519';
+    const taken = keyInfo.keys.some((k) => k.path === base + '.pub' || k.private_key === base);
+    return taken ? base + '_tier0' : base;
+  };
+
+  const go = await modal('Copy SSH key to hosts', [
+    h('p', { text: 'Logs in to each selected host once with the user and password below and adds this controller\'s PUBLIC key to that user\'s ~/.ssh/authorized_keys. Ansible then connects with the private key that stays on this controller — no private key file is copied anywhere. Only the key line is added (never duplicated); nothing else on the host changes.' }),
+    h('div', { class: 'form-grid', style: 'border:0;padding:0' },
+      h('div', {}, h('label', { for: 'ssh-user', text: 'SSH user' }), user,
+        h('div', { class: 'field-help', text: users.length > 1 ? 'Hosts use different inventory users (' + users.join(', ') + '); the key is installed for the user entered here.' : 'The account the key is authorized for — normally the inventory\'s ansible_user.' })),
+      h('div', {}, h('label', { for: 'ssh-pw', text: 'Password' }), pw,
+        h('div', { class: 'field-help', text: 'Used once for this run, passed to ssh through its environment; never stored or logged.' })),
+      h('div', { class: 'full' }, h('label', { for: 'ssh-key', text: 'Public key to install' }), keySel)),
+    h('div', { class: 'spacer' }),
+    h('label', { class: 'switch' }, writeInv, h('span', { class: 'track' }), 'Write ansible_user and ansible_ssh_private_key_file into the inventory for these hosts (you review the change before it is saved)'),
+    h('div', { class: 'spacer' }),
+    h('label', { class: 'switch' }, ignoreHk, h('span', { class: 'track' }), 'Don\'t check host keys (only for reimaged nodes that reuse IPs)'),
+    h('h3', { text: 'Hosts', style: 'margin:18px 0 6px;font-size:15px;font-weight:500' }), tbl, msg],
+  [{ label: 'Cancel', value: false }, { label: 'Copy key', cls: 'primary', value: true, onClick: () => {
+    const u = user.value.trim();
+    const err = !/^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/.test(u) ? 'Enter the SSH user to log in as.'
+      : !pw.value ? 'Enter the password for ' + u + '.'
+        : !boxes.some((b) => b.checked) ? 'Select at least one host.' : '';
+    clear(msg).append(err ? h('p', { class: 'field-danger', text: err }) : '');
+    return !err;
+  } }]);
+  if (!go) return;
+
+  const chosen = hosts.filter((x, i) => boxes[i].checked);
+  const u = user.value.trim();
+  const priv = privFor();
+  const req = { kind: 'ssh_key_push', user: u, password: pw.value, ignore_host_keys: ignoreHk.checked,
+    targets: chosen.map((x) => ({ name: x.name, host: x.host, port: x.port })) };
+  if (keySel.value === '__generate__') req.generate = true; else req.pubkey = keySel.value;
+  pw.value = '';
+
+  if (writeInv.checked && priv) {
+    // Whole group selected -> set on the group (and drop per-host/subgroup overrides);
+    // otherwise set on just the selected hosts.
+    const names = new Set(chosen.map((x) => x.name));
+    m.groups.forEach((g) => {
+      const all = g.hosts.concat(...g.children.map((c) => c.hosts)).filter((x) => x.name);
+      const sel = all.filter((x) => names.has(x.name));
+      if (!sel.length) return;
+      const setOn = (o) => { o.vars = Object.assign({}, o.vars || {}, { ansible_user: u, ansible_ssh_private_key_file: priv }); };
+      if (sel.length === all.length) {
+        setOn(g);
+        [...g.children, ...all].forEach((o) => { if (o.vars) { delete o.vars.ansible_user; delete o.vars.ansible_ssh_private_key_file; } });
+      } else sel.forEach(setOn);
+    });
+    inv.dirty = true;
+  }
+  await startJob(req);
+  if (writeInv.checked && priv) toast('Inventory updated in the editor — open Static Hosts and Save to write it to ' + inv.file + '.');
+}
+
 async function saveInventory(previewOnly) {
   const inv = S.inv;
   const body = { file: inv.file, model: inv.model, base_hash: inv.model.hash };
@@ -794,7 +946,10 @@ const RUN_PRESETS = {
   precheck: { playbook: 'site.yml', tags: ['discovery', 'precheck'], check: true },
 };
 
+// The app's runs default to the static inventory.yml (on-prem / standalone use).
+// ansible.cfg's own default is only used when inventory.yml does not exist.
 async function defaultInventory() {
+  if (S.meta.inventories.includes('inventory.yml')) return ['inventory.yml'];
   try {
     const st = await loadSection('ansible-cfg');
     const v = st.data.values['defaults.inventory'];
