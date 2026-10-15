@@ -47,6 +47,8 @@ tunnel from your workstation first: `ssh -L 8765:127.0.0.1:8765 <user>@<controll
 
 The page edits `inventory.yml` as a tree of groups and hosts.
 
+![Static Hosts: the storage_servers group with three hosts and its group variables](../images/gui/static-hosts.png)
+
 1. **storage_servers** — the Tier 0 / LSS nodes whose local drives become
    Tier 0 storage. **Add host** for each: *Host name* (any label; it becomes the
    Hammerspace node name) and *ansible_host* (IP or DNS name).
@@ -83,6 +85,8 @@ Special cases:
 
 If you can already `ssh <user>@<host>` from the controller without a password,
 skip this. Otherwise click **Copy SSH key to hosts…** on the Static Hosts page:
+
+![Copy SSH key to hosts: SSH user, password, the public key to install and the hosts](../images/gui/ssh-key-dialog.png)
 
 1. **SSH user** and **Password** — the account to log in as; the key is
    authorized for this user. (Prefilled from `ansible_user` when all hosts share one.)

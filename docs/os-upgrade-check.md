@@ -35,6 +35,8 @@ reports, or a whole run, to Hammerspace with secrets masked (from a shell:
 `python3 scripts/hs_upload.py snapshots/<run>`); see
 [gui/README.md](../gui/README.md#uploading-to-hammerspace).
 
+![OS Upgrade Check in the GUI: the four steps and the per-host results of a run](images/gui/upgrade-check.png)
+
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `snapshot_phase` | *(required)* | `pre`, `post`, or `diff` |
@@ -60,6 +62,11 @@ snapshots/2026-10-rocky-9.5/
     ├── diff.html                   self-contained HTML report (open in any browser)
     └── diff.json                   machine-readable result
 ```
+
+In the GUI, *Open report* shows the same diff for one host — what needs
+attention first, then headline values before and after:
+
+![Upgrade report for one host: what needs attention and key facts before and after](images/gui/upgrade-report.png)
 
 ### What is captured and how it is compared
 

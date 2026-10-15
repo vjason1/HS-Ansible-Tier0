@@ -40,7 +40,8 @@
 }
 
 * { box-sizing: border-box; }
-html, body { height: 100%; }
+/* min-height, not height: a fixed-height body ends the sticky top bar and menu rail after one screen. */
+html, body { min-height: 100%; }
 body {
   margin: 0; background: var(--paper); color: var(--ink);
   font: 15px/1.5 var(--sans);
@@ -370,6 +371,9 @@ ol.steps li p { margin: 0 0 10px; color: var(--muted); font-size: 14px; max-widt
   .savebar { left: 0; padding: 12px 16px; }
   .doc-layout { grid-template-columns: 1fr; }
   .facts, .facts.cols3 { grid-template-columns: repeat(2, 1fr); }
+  /* keep wide tables and doc nav inside the screen: they scroll sideways on their own */
+  main, .doc-layout > * { min-width: 0; }
+  table.grid { display: block; overflow-x: auto; }
 }
 
 .doc h1, .doc h2, .doc h3, .doc h4 { scroll-margin-top: calc(var(--topbar-h) + 16px); }
